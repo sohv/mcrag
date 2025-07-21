@@ -88,3 +88,13 @@ class ConflictResolution(BaseModel):
     resolution_strategy: str
     final_decision: str
     confidence: float
+
+class StatusCheck(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: str
+    message: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class StatusCheckCreate(BaseModel):
+    status: str
+    message: str
