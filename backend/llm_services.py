@@ -156,10 +156,10 @@ Please provide your analysis and suggestions following the guidelines in your sy
                         api_key=self.deepseek_key,
                         session_id=session_id,
                         system_message=system_prompt
-                    ).with_model("deepseek", "v3")  # Try v3 first
+                    ).with_model("deepseek", "deepseek-v3")  # Use full model name
                 except:
-                    # If v3 doesn't work, try with OpenAI as fallback
-                    logger.warning("DeepSeek v3 not available, falling back to OpenAI")
+                    # If deepseek-v3 doesn't work, try with OpenAI as fallback
+                    logger.warning("DeepSeek deepseek-v3 not available, falling back to OpenAI")
                     chat = LlmChat(
                         api_key=self.openai_key,
                         session_id=session_id,
