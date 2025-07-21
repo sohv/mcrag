@@ -2,7 +2,7 @@ import asyncio
 from typing import Optional
 from models import (
     CodeSubmission, ReviewSession, LLMFeedback, ReviewResult, 
-    ReviewStatus, FeedbackType, ConflictResolution
+    ReviewStatus, FeedbackType, ConflictResolution, HumanFeedback
 )
 from llm_services import LLMService
 from motor.motor_asyncio import AsyncIOMotorDatabase
