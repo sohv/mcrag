@@ -57,7 +57,7 @@ const ReviewProgress = ({ status, reviewDetails }) => {
         name: 'Critic 2 Review',
         icon: <UserIcon className="h-4 w-4" />,
         completed: reviewDetails.has_critic2_feedback,
-        llm: 'DeepSeek'
+        llm: 'DeepSeek R1'
       }
     ];
   };

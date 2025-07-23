@@ -1,70 +1,76 @@
-# Getting Started with Create React App
+# Multi-LLM Code Review System - Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A React-based frontend for the Multi-LLM Code Review System that enables users to submit code for review by multiple AI models.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+### 🚀 Core Functionality
+- **Code Submission**: Submit code in multiple programming languages (Python, JavaScript, Java, C++)
+- **Real-time Progress Tracking**: Monitor the review process across multiple LLM stages
+- **Comprehensive Results**: View detailed feedback from all LLMs with suggestions and analysis
+- **Human Feedback Integration**: Add your own feedback and ratings to improve the system
 
-### `npm start`
+### 🤖 Multi-LLM Review Process
+1. **Coder Analysis** (Gemini 2.0 Flash): Primary code analysis and improvement suggestions
+2. **Critic 1 Review** (GPT-4o): Technical accuracy validation and critical feedback
+3. **Critic 2 Review** (DeepSeek R1): Maintainability and practical considerations with advanced reasoning
+4. **Consensus Generation**: Automatic conflict resolution and final recommendations
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### 🎨 User Experience
+- **Clean, Modern UI**: Built with React and Tailwind CSS
+- **Responsive Design**: Works on desktop, tablet, and mobile
+- **Real-time Updates**: Automatic status polling during review process
+- **Progressive Interface**: Step-by-step workflow with clear progress indicators
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Getting Started
 
-### `npm test`
+### Prerequisites
+- Node.js 18+ and npm
+- Backend server running (see backend README)
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### Installation
 
-### `npm run build`
+1. **Install dependencies**:
+   ```bash
+   cd frontend
+   npm install
+   ```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+2. **Configure environment**:
+   ```bash
+   # Edit .env file to point to your backend
+   REACT_APP_BACKEND_URL=http://localhost:8000
+   ```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+3. **Start development server**:
+   ```bash
+   npm start
+   ```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+4. **Open in browser**:
+   Navigate to `http://localhost:3000`
 
-### `npm run eject`
+## Usage Guide
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### 1. Submit Code for Review
+- Select programming language from dropdown
+- Add optional description of what your code does
+- Paste your code in the text area
+- Click "Submit for Review"
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### 2. Monitor Review Progress
+- Watch real-time progress as each LLM analyzes your code
+- See completion status for each review stage
+- View consensus score as it's calculated
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### 3. Review Results
+- **Original Code**: See your submitted code with syntax highlighting
+- **Coder Analysis**: Primary improvement suggestions and code snippets
+- **Critic Reviews**: Critical analysis from two different perspectives
+- **Final Recommendations**: Synthesized recommendations with consensus scoring
+- **Suggested Code**: Improved code versions when available
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+### 4. Provide Human Feedback
+- Add your own feedback on the review quality
+- Rate the overall review (1-5 stars)
+- Help improve the system with your insights
