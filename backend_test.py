@@ -33,8 +33,8 @@ class BackendTester:
     
     def log_test(self, test_name: str, success: bool, details: str = "", response_data: Any = None):
         """Log test results"""
-        status = "✅ PASS" if success else "❌ FAIL"
-        print(f"{status} {test_name}")
+        status = "PASS" if success else "FAIL"
+        print(f"[{status}] {test_name}")
         if details:
             print(f"   Details: {details}")
         if response_data and not success:
@@ -312,11 +312,11 @@ print(fibonacci(10))'''
             async with self.session.post(f"{BACKEND_URL}/start-review/invalid-id") as response:
                 if response.status == 404:
                     tests_passed += 1
-                    print("✅ Invalid submission ID handled correctly")
+                    print("[PASS] Invalid submission ID handled correctly")
                 else:
-                    print(f"❌ Invalid submission ID: Expected 404, got {response.status}")
+                    print(f"[FAIL] Invalid submission ID: Expected 404, got {response.status}")
         except Exception as e:
-            print(f"❌ Invalid submission ID test failed: {e}")
+            print(f"[FAIL] Invalid submission ID test failed: {e}")
         
         # Test invalid session ID
         total_tests += 1
@@ -324,11 +324,11 @@ print(fibonacci(10))'''
             async with self.session.get(f"{BACKEND_URL}/review-status/invalid-session") as response:
                 if response.status == 404:
                     tests_passed += 1
-                    print("✅ Invalid session ID handled correctly")
+                    print("[PASS] Invalid session ID handled correctly")
                 else:
-                    print(f"❌ Invalid session ID: Expected 404, got {response.status}")
+                    print(f"[FAIL] Invalid session ID: Expected 404, got {response.status}")
         except Exception as e:
-            print(f"❌ Invalid session ID test failed: {e}")
+            print(f"[FAIL] Invalid session ID test failed: {e}")
         
         # Test invalid code submission
         total_tests += 1
@@ -341,11 +341,11 @@ print(fibonacci(10))'''
             ) as response:
                 if response.status in [400, 422]:  # Bad request or validation error
                     tests_passed += 1
-                    print("✅ Invalid code submission handled correctly")
+                    print("[PASS] Invalid code submission handled correctly")
                 else:
-                    print(f"❌ Invalid code submission: Expected 400/422, got {response.status}")
+                    print(f"[FAIL] Invalid code submission: Expected 400/422, got {response.status}")
         except Exception as e:
-            print(f"❌ Invalid code submission test failed: {e}")
+            print(f"[FAIL] Invalid code submission test failed: {e}")
         
         success = tests_passed == total_tests
         self.log_test("Error handling", success, f"{tests_passed}/{total_tests} error cases handled correctly")
@@ -353,7 +353,7 @@ print(fibonacci(10))'''
     
     async def run_all_tests(self):
         """Run all backend tests"""
-        print("🚀 Starting Multi-LLM Code Review Backend Tests")
+        print("Starting Multi-LLM Code Review Backend Tests")
         print("=" * 60)
         
         await self.setup()
@@ -361,7 +361,7 @@ print(fibonacci(10))'''
         try:
             # Basic connectivity
             if not await self.test_root_endpoint():
-                print("❌ Cannot connect to backend. Stopping tests.")
+                print("[FAIL] Cannot connect to backend. Stopping tests.")
                 return
             
             # Core workflow tests
@@ -389,7 +389,7 @@ print(fibonacci(10))'''
         
         # Summary
         print("=" * 60)
-        print("📊 TEST SUMMARY")
+        print("TEST SUMMARY")
         print("=" * 60)
         
         passed = sum(1 for result in self.test_results if result["success"])
@@ -401,9 +401,9 @@ print(fibonacci(10))'''
         print(f"Success Rate: {passed/total*100:.1f}%")
         
         if passed == total:
-            print("\n🎉 All tests passed! Backend is working correctly.")
+            print("\nAll tests passed! Backend is working correctly.")
         else:
-            print(f"\n⚠️  {total - passed} test(s) failed. Check the details above.")
+            print(f"\n{total - passed} test(s) failed. Check the details above.")
             
         return passed == total
 

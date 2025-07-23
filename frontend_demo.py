@@ -66,11 +66,11 @@ int main() {
 
 def print_test_instructions():
     """Print instructions for testing the frontend"""
-    print("🚀 Multi-LLM Code Review System - Frontend Test Guide")
+    print("Multi-LLM Code Review System - Frontend Test Guide")
     print("=" * 60)
     print()
     
-    print("📋 Test Scenarios:")
+    print("Test Scenarios:")
     print("-" * 20)
     
     for lang, data in TEST_CODES.items():
@@ -98,7 +98,7 @@ def print_test_instructions():
     print("   - Add human feedback")
     print()
     
-    print("✅ Expected Results:")
+    print("Expected Results:")
     print("-" * 20)
     print("- Gemini (Coder): Provides improvement suggestions")
     print("- GPT-4o (Critic 1): Validates technical accuracy")
@@ -107,7 +107,7 @@ def print_test_instructions():
     print("- Final recommendations synthesize all feedback")
     print()
     
-    print("🔍 What to Look For:")
+    print("What to Look For:")
     print("-" * 20)
     print("- Real-time progress updates")
     print("- Clear feedback from each LLM")
@@ -117,7 +117,7 @@ def print_test_instructions():
     print("- Human feedback integration")
     print()
     
-    print("🐛 Troubleshooting:")
+    print("Troubleshooting:")
     print("-" * 20)
     print("- Check that backend is running on correct port")
     print("- Verify REACT_APP_BACKEND_URL in frontend/.env")
@@ -129,14 +129,14 @@ def generate_test_data_json():
     """Generate JSON file with test data for easy copying"""
     with open('frontend_test_data.json', 'w') as f:
         json.dump(TEST_CODES, f, indent=2)
-    print("💾 Test data saved to 'frontend_test_data.json'")
+    print("Test data saved to 'frontend_test_data.json'")
     print("   You can copy code samples from this file for testing")
 
 if __name__ == "__main__":
     print_test_instructions()
     generate_test_data_json()
     
-    print("\n🎯 Quick Start:")
+    print("\nQuick Start:")
     print("1. Run: cd frontend && npm start")
     print("2. Open: http://localhost:3000")
     print("3. Test with the code samples above!")
