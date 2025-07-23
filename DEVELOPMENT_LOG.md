@@ -14,7 +14,7 @@ The system was built using **FastAPI** with the following core components:
 2. **Data Models** (`models.py`) - Pydantic models for type safety
 3. **Workflow Engine** (`review_workflow.py`) - Orchestrates the multi-LLM review process
 4. **LLM Services** (`llm_services.py`) - Integrates with multiple LLM providers
-5. **Database Layer** - MongoDB with Motor (async driver)
+5. **Storage Layer** - Redis for in-memory session and data storage
 
 ### Key Features Identified
 
@@ -160,7 +160,7 @@ npm install @heroicons/react
 
 **Environment Configuration:**
 ```env
-REACT_APP_BACKEND_URL=https://5fb3f7ee-427d-44c2-880d-f98bdbda17b9.preview.emergentagent.com
+REACT_APP_BACKEND_URL=http://127.0.0.1:8000
 WDS_SOCKET_PORT=443
 ```
 
@@ -190,12 +190,12 @@ pip install --upgrade pip
 pip install --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ emergentintegrations
 
 # Install remaining dependencies
-pip install pymongo==4.5.0 motor==3.3.1 email-validator pyjwt passlib pytest black isort flake8 mypy python-jose boto3 cryptography requests-oauthlib tzdata pandas numpy python-multipart jq typer
+pip install redis[hiredis]==5.0.1 email-validator pyjwt passlib pytest black isort flake8 mypy python-jose boto3 cryptography requests-oauthlib tzdata pandas numpy python-multipart jq typer
 ```
 
 **Key Packages Installed:**
 - FastAPI & Uvicorn - Web framework and server
-- Motor & PyMongo - Async MongoDB driver
+- Redis - In-memory data storage for sessions and feedback
 - emergentintegrations - Multi-LLM client library
 - Pydantic - Data validation and serialization
 - Development tools: pytest, black, mypy, flake8
@@ -204,8 +204,7 @@ pip install pymongo==4.5.0 motor==3.3.1 email-validator pyjwt passlib pytest bla
 
 **File: `backend/.env`**
 ```env
-MONGO_URL="mongodb://localhost:27017"
-DB_NAME="test_database"
+REDIS_URL="redis://localhost:6379"
 
 # LLM API Keys
 OPENAI_API_KEY="sk-proj-..."
@@ -298,18 +297,13 @@ print(fibonacci(10))''',
 
 ### Backend Connection Issues
 **Problem:** Frontend showing "Failed to submit code for review"
-**Root Cause:** Backend server not running
-**Solution:** Proper virtual environment setup and server startup
+**Root Cause:** Backend server not running or Redis not available
+**Solution:** Proper virtual environment setup, Redis installation, and server startup
 
-### Virtual Environment Issues
-**Problem:** `source: no such file or directory: venv/bin/activate`
-**Root Cause:** Incorrect virtual environment path
-**Solution:** Navigate to correct directory and verify venv structure
-
-### Dependencies Issues
-**Problem:** `emergentintegrations` package not found
-**Root Cause:** Package requires special index URL
-**Solution:** Use `--extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/`
+### Storage Issues
+**Problem:** Redis connection refused
+**Root Cause:** Redis server not running locally
+**Solution:** Install and start Redis: `brew install redis && brew services start redis`
 
 ## Development Status
 

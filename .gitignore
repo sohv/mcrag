@@ -83,3 +83,5 @@ venv/
 env/
 .env
 frontend/.env
+dev.md
+backend/.env

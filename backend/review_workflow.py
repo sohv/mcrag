@@ -1,18 +1,18 @@
 import asyncio
+import json
 from typing import Optional
 from models import (
     CodeSubmission, ReviewSession, LLMFeedback, ReviewResult, 
     ReviewStatus, FeedbackType, ConflictResolution, HumanFeedback
 )
 from llm_services import LLMService
-from motor.motor_asyncio import AsyncIOMotorDatabase
 import logging
 
 logger = logging.getLogger(__name__)
 
 class ReviewWorkflow:
-    def __init__(self, db: AsyncIOMotorDatabase):
-        self.db = db
+    def __init__(self, redis_client):
+        self.redis = redis_client
         self.llm_service = LLMService()
         
     async def start_review(self, submission: CodeSubmission) -> ReviewSession:
@@ -29,11 +29,8 @@ class ReviewWorkflow:
         submission.status = ReviewStatus.IN_PROGRESS
         
         # Save initial session and update submission
-        await self.db.review_sessions.insert_one(session.dict())
-        await self.db.code_submissions.update_one(
-            {"id": submission.id},
-            {"$set": {"status": submission.status.value}}
-        )
+        await self.redis.setex(f"session:{session.id}", 86400, json.dumps(session.dict()))
+        await self.redis.setex(f"submission:{submission.id}", 86400, json.dumps(submission.dict()))
         
         try:
             # Step 1: Get coder feedback
@@ -54,7 +51,7 @@ class ReviewWorkflow:
                 processing_time=processing_time
             )
             
-            await self.db.llm_feedbacks.insert_one(coder_feedback.dict())
+            await self.redis.setex(f"feedback:{coder_feedback.id}", 86400, json.dumps(coder_feedback.dict()))
             session.coder_feedback_id = coder_feedback.id
             
             # Step 2: Get critic feedbacks in parallel
@@ -81,7 +78,7 @@ class ReviewWorkflow:
                     feedback_text=critic1_response,
                     processing_time=critic1_time
                 )
-                await self.db.llm_feedbacks.insert_one(critic1_feedback.dict())
+                await self.redis.setex(f"feedback:{critic1_feedback.id}", 86400, json.dumps(critic1_feedback.dict()))
                 session.critic1_feedback_id = critic1_feedback.id
             else:
                 logger.error(f"Critic 1 failed: {critic_results[0]}")
@@ -97,7 +94,7 @@ class ReviewWorkflow:
                     feedback_text=critic2_response,
                     processing_time=critic2_time
                 )
-                await self.db.llm_feedbacks.insert_one(critic2_feedback.dict())
+                await self.redis.setex(f"feedback:{critic2_feedback.id}", 86400, json.dumps(critic2_feedback.dict()))
                 session.critic2_feedback_id = critic2_feedback.id
             else:
                 logger.error(f"Critic 2 failed: {critic_results[1]}")
@@ -126,16 +123,11 @@ class ReviewWorkflow:
             session.status = ReviewStatus.COMPLETED
             session.final_code = suggested_code
             
-            await self.db.review_sessions.update_one(
-                {"id": session.id},
-                {"$set": session.dict()}
-            )
+            await self.redis.setex(f"session:{session.id}", 86400, json.dumps(session.dict()))
             
             # Update submission
-            await self.db.code_submissions.update_one(
-                {"id": submission.id},
-                {"$set": {"status": ReviewStatus.COMPLETED.value}}
-            )
+            submission.status = ReviewStatus.COMPLETED
+            await self.redis.setex(f"submission:{submission.id}", 86400, json.dumps(submission.dict()))
             
             logger.info(f"Review completed for submission {submission.id}")
             return session
@@ -144,14 +136,9 @@ class ReviewWorkflow:
             logger.error(f"Review failed for submission {submission.id}: {str(e)}")
             # Update session and submission status to failed
             session.status = ReviewStatus.FAILED
-            await self.db.review_sessions.update_one(
-                {"id": session.id},
-                {"$set": {"status": ReviewStatus.FAILED.value}}
-            )
-            await self.db.code_submissions.update_one(
-                {"id": submission.id},
-                {"$set": {"status": ReviewStatus.FAILED.value}}
-            )
+            submission.status = ReviewStatus.FAILED
+            await self.redis.setex(f"session:{session.id}", 86400, json.dumps(session.dict()))
+            await self.redis.setex(f"submission:{submission.id}", 86400, json.dumps(submission.dict()))
             raise
     
     def _generate_final_recommendations(
@@ -195,39 +182,38 @@ class ReviewWorkflow:
         """Get complete review result for a session."""
         try:
             # Get session
-            session_doc = await self.db.review_sessions.find_one({"id": session_id})
-            if not session_doc:
+            session_data = await self.redis.get(f"session:{session_id}")
+            if not session_data:
                 return None
-            session = ReviewSession(**session_doc)
+            session = ReviewSession(**json.loads(session_data))
             
             # Get submission
-            submission_doc = await self.db.code_submissions.find_one({"id": session.submission_id})
-            if not submission_doc:
+            submission_data = await self.redis.get(f"submission:{session.submission_id}")
+            if not submission_data:
                 return None
-            submission = CodeSubmission(**submission_doc)
+            submission = CodeSubmission(**json.loads(submission_data))
             
             # Get feedbacks
             coder_feedback = None
             if session.coder_feedback_id:
-                feedback_doc = await self.db.llm_feedbacks.find_one({"id": session.coder_feedback_id})
-                if feedback_doc:
-                    coder_feedback = LLMFeedback(**feedback_doc)
+                feedback_data = await self.redis.get(f"feedback:{session.coder_feedback_id}")
+                if feedback_data:
+                    coder_feedback = LLMFeedback(**json.loads(feedback_data))
             
             critic_feedbacks = []
             for critic_id in [session.critic1_feedback_id, session.critic2_feedback_id]:
                 if critic_id:
-                    feedback_doc = await self.db.llm_feedbacks.find_one({"id": critic_id})
-                    if feedback_doc:
-                        critic_feedbacks.append(LLMFeedback(**feedback_doc))
+                    feedback_data = await self.redis.get(f"feedback:{critic_id}")
+                    if feedback_data:
+                        critic_feedbacks.append(LLMFeedback(**json.loads(feedback_data)))
             
             # Get human feedbacks
             human_feedbacks = []
             if session.human_feedback_ids:
-                human_feedback_cursor = self.db.human_feedbacks.find(
-                    {"id": {"$in": session.human_feedback_ids}}
-                )
-                async for feedback_doc in human_feedback_cursor:
-                    human_feedbacks.append(HumanFeedback(**feedback_doc))
+                for feedback_id in session.human_feedback_ids:
+                    feedback_data = await self.redis.get(f"human_feedback:{feedback_id}")
+                    if feedback_data:
+                        human_feedbacks.append(HumanFeedback(**json.loads(feedback_data)))
             
             # Generate final recommendations
             final_recommendations = self._generate_final_recommendations(

@@ -1,10 +1,11 @@
 from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+import redis.asyncio as redis
 import os
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+import json
 
 # Import our models and services
 from models import (
@@ -17,10 +18,9 @@ from review_workflow import ReviewWorkflow
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# Redis connection
+redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379')
+redis_client = redis.from_url(redis_url, decode_responses=True)
 
 # Create the main app without a prefix
 app = FastAPI(title="Multi-LLM Code Review System", version="1.0.0")
@@ -29,7 +29,7 @@ app = FastAPI(title="Multi-LLM Code Review System", version="1.0.0")
 api_router = APIRouter(prefix="/api")
 
 # Initialize review workflow
-review_workflow = ReviewWorkflow(db)
+review_workflow = ReviewWorkflow(redis_client)
 
 # Original status check endpoints
 @api_router.get("/")
@@ -40,13 +40,20 @@ async def root():
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.dict()
     status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
+    # Store in Redis with expiration (24 hours)
+    await redis_client.setex(f"status:{status_obj.id}", 86400, json.dumps(status_obj.dict()))
     return status_obj
 
 @api_router.get("/status")
 async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
+    # Get all status check keys
+    keys = await redis_client.keys("status:*")
+    status_checks = []
+    for key in keys:
+        data = await redis_client.get(key)
+        if data:
+            status_checks.append(StatusCheck(**json.loads(data)))
+    return status_checks
 
 # New Code Review endpoints
 @api_router.post("/submit-code", response_model=CodeSubmission)
@@ -56,8 +63,8 @@ async def submit_code_for_review(submission: CodeSubmissionCreate):
         # Create code submission
         code_submission = CodeSubmission(**submission.dict())
         
-        # Save to database
-        await db.code_submissions.insert_one(code_submission.dict())
+        # Save to Redis with expiration (24 hours)
+        await redis_client.setex(f"submission:{code_submission.id}", 86400, json.dumps(code_submission.dict()))
         
         return code_submission
     except Exception as e:
@@ -68,12 +75,12 @@ async def submit_code_for_review(submission: CodeSubmissionCreate):
 async def start_code_review(submission_id: str):
     """Start the multi-LLM review process for a code submission."""
     try:
-        # Get submission
-        submission_doc = await db.code_submissions.find_one({"id": submission_id})
-        if not submission_doc:
+        # Get submission from Redis
+        submission_data = await redis_client.get(f"submission:{submission_id}")
+        if not submission_data:
             raise HTTPException(status_code=404, detail="Code submission not found")
         
-        submission = CodeSubmission(**submission_doc)
+        submission = CodeSubmission(**json.loads(submission_data))
         
         if submission.status != ReviewStatus.PENDING:
             raise HTTPException(status_code=400, detail=f"Submission is not in pending status. Current status: {submission.status}")
@@ -108,11 +115,11 @@ async def get_review_result(session_id: str):
 async def get_review_status(session_id: str):
     """Get the current status of a review session."""
     try:
-        session_doc = await db.review_sessions.find_one({"id": session_id})
-        if not session_doc:
+        session_data = await redis_client.get(f"session:{session_id}")
+        if not session_data:
             raise HTTPException(status_code=404, detail="Review session not found")
         
-        session = ReviewSession(**session_doc)
+        session = ReviewSession(**json.loads(session_data))
         return {
             "session_id": session.id,
             "status": session.status,
@@ -133,11 +140,11 @@ async def add_human_feedback(session_id: str, feedback: HumanFeedbackCreate):
     """Add human feedback to a review session."""
     try:
         # Check if session exists
-        session_doc = await db.review_sessions.find_one({"id": session_id})
-        if not session_doc:
+        session_data = await redis_client.get(f"session:{session_id}")
+        if not session_data:
             raise HTTPException(status_code=404, detail="Review session not found")
         
-        session = ReviewSession(**session_doc)
+        session = ReviewSession(**json.loads(session_data))
         
         # Create human feedback
         human_feedback = HumanFeedback(
@@ -146,15 +153,12 @@ async def add_human_feedback(session_id: str, feedback: HumanFeedbackCreate):
             **feedback.dict()
         )
         
-        # Save to database
-        await db.human_feedbacks.insert_one(human_feedback.dict())
+        # Save to Redis
+        await redis_client.setex(f"human_feedback:{human_feedback.id}", 86400, json.dumps(human_feedback.dict()))
         
         # Update session
         session.human_feedback_ids.append(human_feedback.id)
-        await db.review_sessions.update_one(
-            {"id": session_id},
-            {"$set": {"human_feedback_ids": session.human_feedback_ids}}
-        )
+        await redis_client.setex(f"session:{session_id}", 86400, json.dumps(session.dict()))
         
         return {"message": "Human feedback added successfully", "feedback_id": human_feedback.id}
     
@@ -168,20 +172,33 @@ async def add_human_feedback(session_id: str, feedback: HumanFeedbackCreate):
 async def get_all_submissions():
     """Get all code submissions with their current status."""
     try:
-        submissions_cursor = db.code_submissions.find().sort("created_at", -1)
+        # Get all submission keys
+        submission_keys = await redis_client.keys("submission:*")
         submissions = []
-        async for submission_doc in submissions_cursor:
-            submission = CodeSubmission(**submission_doc)
-            
-            # Get associated session if exists
-            session_doc = await db.review_sessions.find_one({"submission_id": submission.id})
-            session_id = session_doc["id"] if session_doc else None
-            
-            submissions.append({
-                "submission": submission,
-                "session_id": session_id
-            })
         
+        for key in submission_keys:
+            submission_data = await redis_client.get(key)
+            if submission_data:
+                submission = CodeSubmission(**json.loads(submission_data))
+                
+                # Get associated session if exists
+                session_keys = await redis_client.keys(f"session:*")
+                session_id = None
+                for session_key in session_keys:
+                    session_data = await redis_client.get(session_key)
+                    if session_data:
+                        session = ReviewSession(**json.loads(session_data))
+                        if session.submission_id == submission.id:
+                            session_id = session.id
+                            break
+                
+                submissions.append({
+                    "submission": submission,
+                    "session_id": session_id
+                })
+        
+        # Sort by created_at (newest first)
+        submissions.sort(key=lambda x: x["submission"].created_at, reverse=True)
         return submissions
     except Exception as e:
         logging.error(f"Error getting submissions: {str(e)}")
@@ -191,10 +208,16 @@ async def get_all_submissions():
 async def get_llm_feedbacks(session_id: str):
     """Get all LLM feedbacks for a session."""
     try:
-        feedbacks_cursor = db.llm_feedbacks.find({"session_id": session_id})
+        # Get all feedback keys and filter by session_id
+        feedback_keys = await redis_client.keys("feedback:*")
         feedbacks = []
-        async for feedback_doc in feedbacks_cursor:
-            feedbacks.append(LLMFeedback(**feedback_doc))
+        
+        for key in feedback_keys:
+            feedback_data = await redis_client.get(key)
+            if feedback_data:
+                feedback = LLMFeedback(**json.loads(feedback_data))
+                if feedback.session_id == session_id:
+                    feedbacks.append(feedback)
         
         return feedbacks
     except Exception as e:
@@ -220,5 +243,5 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+async def shutdown_redis_client():
+    await redis_client.close()
