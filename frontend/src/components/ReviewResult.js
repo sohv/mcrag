@@ -21,7 +21,14 @@ const ReviewResult = ({ reviewData, onHumanFeedback }) => {
     );
   }
 
-  const { submission, coder_feedback, critic_feedbacks, final_recommendations, session } = reviewData;
+  // Handle the actual backend data structure
+  const { session, request, generated_codes, critic_reviews, final_code, generation_summary } = reviewData;
+  
+  // Map to expected format for compatibility with existing component logic
+  const submission = request;
+  const coder_feedback = generated_codes?.[generated_codes.length - 1]; // Latest version
+  const critic_feedbacks = critic_reviews || [];
+  const final_recommendations = generation_summary;
 
   const handleSubmitFeedback = async (e) => {
     e.preventDefault();
@@ -75,172 +82,134 @@ const ReviewResult = ({ reviewData, onHumanFeedback }) => {
   );
 
   return (
-    <div className="space-y-6">
-      {/* Original Code */}
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div className="bg-white shadow-lg rounded-lg p-6">
-        <div className="flex items-center mb-4">
-          <ClipboardDocumentIcon className="h-5 w-5 text-gray-600 mr-2" />
-          <h3 className="text-lg font-semibold text-gray-900">Original Code</h3>
-          <span className="ml-auto text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
-            {submission.language}
-          </span>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">Code Generation Complete</h2>
+          <div className="text-sm text-gray-500">
+            {session?.refinement_iterations !== undefined ? session.refinement_iterations + 1 : 1} iteration{(session?.refinement_iterations || 0) !== 0 ? 's' : ''}
+          </div>
         </div>
-        {submission.description && (
-          <p className="text-sm text-gray-600 mb-3">{submission.description}</p>
+
+        {/* Final Code Display */}
+        {final_code && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-gray-800">Final Generated Code</h3>
+              <button
+                onClick={() => navigator.clipboard.writeText(final_code)}
+                className="flex items-center px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+              >
+                <ClipboardDocumentIcon className="h-4 w-4 mr-1" />
+                Copy Code
+              </button>
+            </div>
+            <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+              <pre className="text-green-400 text-sm">
+                <code>{final_code}</code>
+              </pre>
+            </div>
+          </div>
         )}
-        <div className="bg-gray-900 rounded-md p-4 overflow-x-auto">
-          <pre className="text-sm text-gray-100">
-            <code>{submission.original_code}</code>
-          </pre>
-        </div>
+
+        {/* Generation Summary */}
+        {generation_summary && (
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+            <h4 className="font-semibold text-blue-900 mb-2">Generation Summary</h4>
+            <p className="text-blue-800 text-sm">{generation_summary}</p>
+          </div>
+        )}
+
+        {/* Request Details */}
+        {submission && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <h4 className="font-semibold text-gray-900 mb-2">Original Request</h4>
+            <p className="text-gray-700 text-sm mb-2"><strong>Prompt:</strong> {submission.user_prompt}</p>
+            <p className="text-gray-700 text-sm mb-2"><strong>Language:</strong> {submission.language}</p>
+            {submission.requirements && (
+              <p className="text-gray-700 text-sm"><strong>Requirements:</strong> {submission.requirements}</p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Coder Feedback */}
-      {coder_feedback && (
+      {/* Code Evolution */}
+      {generated_codes && generated_codes.length > 1 && (
         <div className="bg-white shadow-lg rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">LLM Reviews</h3>
-          <FeedbackCard
-            title="Coder Analysis"
-            feedback={coder_feedback}
-            icon={<CpuChipIcon className="h-5 w-5 text-blue-600" />}
-            llmModel={coder_feedback.llm_model}
-          />
-        </div>
-      )}
-
-      {/* Critic Feedbacks */}
-      {critic_feedbacks && critic_feedbacks.length > 0 && (
-        <div className="bg-white shadow-lg rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Critic Reviews</h3>
-          {critic_feedbacks.map((feedback, index) => (
-            <FeedbackCard
-              key={index}
-              title={`Critic ${index + 1} Analysis`}
-              feedback={feedback}
-              icon={<UserIcon className="h-5 w-5 text-purple-600" />}
-              llmModel={feedback.llm_model}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Final Recommendations */}
-      {final_recommendations && (
-        <div className="bg-white shadow-lg rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Final Recommendations</h3>
-          <div className="prose prose-sm max-w-none">
-            <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">
-              {final_recommendations}
-            </pre>
-          </div>
-          
-          {session.consensus_score !== null && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-blue-900">Overall Consensus</span>
-                <span className="text-lg font-bold text-blue-600">
-                  {(session.consensus_score * 100).toFixed(1)}%
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Human Feedback Section */}
-      <div className="bg-white shadow-lg rounded-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Human Feedback</h3>
-          <button
-            onClick={() => setShowHumanFeedback(!showHumanFeedback)}
-            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm"
-          >
-            <ChatBubbleLeftIcon className="h-4 w-4 inline mr-1" />
-            Add Feedback
-          </button>
-        </div>
-
-        {showHumanFeedback && (
-          <form onSubmit={handleSubmitFeedback} className="space-y-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Your Feedback
-              </label>
-              <textarea
-                value={feedbackText}
-                onChange={(e) => setFeedbackText(e.target.value)}
-                rows={4}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
-                placeholder="Share your thoughts on the review quality and suggestions..."
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Rating (1-5 stars)
-              </label>
-              <div className="flex space-x-1">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    onClick={() => setRating(star)}
-                    className={`p-1 ${rating >= star ? 'text-yellow-400' : 'text-gray-300'}`}
-                  >
-                    <StarIcon className="h-5 w-5 fill-current" />
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            <div className="flex space-x-3">
-              <button
-                type="submit"
-                disabled={submittingFeedback || !feedbackText.trim()}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  submittingFeedback || !feedbackText.trim()
-                    ? 'bg-gray-400 cursor-not-allowed text-white'
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
-              >
-                {submittingFeedback ? 'Submitting...' : 'Submit Feedback'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowHumanFeedback(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Show existing human feedbacks if any */}
-        {reviewData.human_feedbacks && reviewData.human_feedbacks.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="font-medium text-gray-900">Previous Feedback</h4>
-            {reviewData.human_feedbacks.map((feedback, index) => (
-              <div key={index} className="bg-gray-50 p-3 rounded-md">
-                <p className="text-sm text-gray-700">{feedback.feedback_text}</p>
-                {feedback.rating && (
-                  <div className="flex items-center mt-1">
-                    <span className="text-xs text-gray-500 mr-2">Rating:</span>
-                    {[...Array(5)].map((_, i) => (
-                      <StarIcon
-                        key={i}
-                        className={`h-3 w-3 ${
-                          i < feedback.rating ? 'text-yellow-400' : 'text-gray-300'
-                        } fill-current`}
-                      />
-                    ))}
-                  </div>
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Code Evolution</h3>
+          <div className="space-y-4">
+            {generated_codes.map((code, index) => (
+              <div key={code.id} className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium text-gray-900">Version {code.version}</h4>
+                  <span className="text-xs text-gray-500">
+                    {new Date(code.created_at).toLocaleString()}
+                  </span>
+                </div>
+                {code.explanation && (
+                  <p className="text-sm text-gray-600 mb-3">{code.explanation}</p>
                 )}
+                <div className="bg-gray-900 rounded p-3 overflow-x-auto">
+                  <pre className="text-green-400 text-xs">
+                    <code>{code.generated_code}</code>
+                  </pre>
+                </div>
               </div>
             ))}
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Critic Reviews */}
+      {critic_feedbacks && critic_feedbacks.length > 0 && (
+        <div className="bg-white shadow-lg rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Critic Reviews</h3>
+          <div className="space-y-4">
+            {critic_feedbacks.map((review, index) => (
+              <div key={review.id} className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium text-gray-900">
+                    {review.critic_type === 'CRITIC1' ? 'Critic 1' : 'Critic 2'} Review
+                  </h4>
+                  <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                    {review.llm_model}
+                  </span>
+                </div>
+                <div className="text-sm text-gray-700 mb-3">
+                  {review.review_text}
+                </div>
+                {review.suggestions && review.suggestions.length > 0 && (
+                  <div className="bg-yellow-50 rounded p-3">
+                    <h5 className="font-medium text-yellow-900 mb-2">Suggestions:</h5>
+                    <ul className="text-sm text-yellow-800 space-y-1">
+                      {review.suggestions.map((suggestion, idx) => (
+                        <li key={idx} className="flex items-start">
+                          <span className="mr-2">•</span>
+                          <span>{suggestion}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
+                  <span>Severity: {review.severity_rating}/5</span>
+                  <span>Confidence: {(review.confidence_score * 100).toFixed(0)}%</span>
+                  {review.processing_time && <span>Time: {review.processing_time.toFixed(2)}s</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reset Button */}
+      <div className="text-center">
+        <button
+          onClick={() => window.location.reload()}
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Generate New Code
+        </button>
       </div>
     </div>
   );

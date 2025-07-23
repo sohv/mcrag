@@ -85,3 +85,11 @@ env/
 frontend/.env
 dev.md
 backend/.env
+
+# Temporary/development files that should not be tracked
+**/CodeGeneration.js
+**/code_generation_workflow.py
+**/llm_services_working.py
+**/new_llm_services.py
+**/new_server.py
+**/llm_services_broken.py

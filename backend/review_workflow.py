@@ -38,8 +38,9 @@ class CodeGenerationWorkflow:
             status=GenerationStatus.GENERATING
         )
         
-        # Update request status
+        # Update request status and link to session
         request.status = GenerationStatus.GENERATING
+        request.session_id = session.id  # This was missing!
         
         # Save initial session and update request
         await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
@@ -126,16 +127,20 @@ class CodeGenerationWorkflow:
         logger.info("Generating initial code...")
         
         prompt = f"""
-        Generate {request.language.value} code based on this request:
+        Generate minimal, clean {request.language.value} code based on this request:
         
         User Prompt: {request.user_prompt}
         
         Additional Requirements: {request.requirements or 'None specified'}
         
-        Please provide:
-        1. Clean, well-structured code
-        2. Comments explaining key parts
-        3. A brief explanation of your approach
+        Requirements:
+        1. Write minimal, concise code using modern {request.language.value} features
+        2. Use only brief single-line comments where absolutely necessary
+        3. NO multi-line comments or block comments
+        4. Focus on clean, readable code structure over verbose explanations
+        5. Use recent language version features and best practices
+        
+        Provide only the code - explanations will be handled separately.
         """
         
         code_response, explanation, processing_time = await self.llm_service.get_generator_response(
@@ -198,7 +203,14 @@ class CodeGenerationWorkflow:
         Your Incorporation Plan:
         {ranking.incorporation_plan}
         
-        Please refine the code following your incorporation plan and provide an explanation of changes made.
+        Requirements for refined code:
+        1. Write minimal, concise code using modern {request.language.value} features
+        2. Use only brief single-line comments where absolutely necessary
+        3. NO multi-line comments or block comments
+        4. Focus on implementing the improvements without verbose explanations
+        5. Use recent language version features and best practices
+        
+        Provide only the refined code - change explanations will be handled separately.
         """
         
         refined_code_response, explanation, processing_time = await self.llm_service.get_generator_response(
