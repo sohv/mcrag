@@ -15,8 +15,10 @@ const ReviewProgress = ({ status, reviewDetails }) => {
         return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
       case 'failed':
         return <XCircleIcon className="h-5 w-5 text-red-500" />;
-      case 'in_progress':
-        return <CogIcon className="h-5 w-5 text-blue-500 animate-spin" />;
+      case 'generating':
+      case 'reviewing':
+      case 'refining':
+        return <CogIcon className="h-5 w-5 text-purple-500 animate-spin" />;
       default:
         return <ClockIcon className="h-5 w-5 text-gray-400" />;
     }
@@ -25,41 +27,67 @@ const ReviewProgress = ({ status, reviewDetails }) => {
   const getStatusText = (status) => {
     switch (status) {
       case 'completed':
-        return 'Review Completed';
+        return 'Code Generation Completed';
       case 'failed':
-        return 'Review Failed';
-      case 'in_progress':
-        return 'Review in Progress';
+        return 'Generation Failed';
+      case 'generating':
+        return 'Generating Code...';
+      case 'reviewing':
+        return 'Critics Reviewing Code...';
+      case 'refining':
+        return 'Refining Based on Feedback...';
       case 'pending':
-        return 'Pending Review';
+        return 'Pending Generation';
       default:
-        return 'Unknown Status';
+        return 'Processing...';
     }
   };
 
   const getProgressSteps = () => {
     if (!reviewDetails) return [];
 
-    return [
+    const steps = [
       {
-        name: 'Coder Analysis',
+        name: 'Code Generation',
         icon: <CpuChipIcon className="h-4 w-4" />,
-        completed: reviewDetails.has_coder_feedback,
-        llm: 'Gemini'
-      },
-      {
-        name: 'Critic 1 Review',
-        icon: <UserIcon className="h-4 w-4" />,
-        completed: reviewDetails.has_critic1_feedback,
-        llm: 'GPT-4'
-      },
-      {
-        name: 'Critic 2 Review',
-        icon: <UserIcon className="h-4 w-4" />,
-        completed: reviewDetails.has_critic2_feedback,
-        llm: 'DeepSeek R1'
+        completed: reviewDetails.status !== 'pending',
+        inProgress: reviewDetails.status === 'generating',
+        llm: 'Gemini 2.0 Flash'
       }
     ];
+
+    // Add review steps if we've started reviewing
+    if (reviewDetails.status !== 'pending' && reviewDetails.status !== 'generating') {
+      steps.push(
+        {
+          name: 'Critic 1 Review',
+          icon: <UserIcon className="h-4 w-4" />,
+          completed: reviewDetails.status === 'completed' || reviewDetails.status === 'refining',
+          inProgress: reviewDetails.status === 'reviewing',
+          llm: 'GPT-4o'
+        },
+        {
+          name: 'Critic 2 Review',
+          icon: <UserIcon className="h-4 w-4" />,
+          completed: reviewDetails.status === 'completed' || reviewDetails.status === 'refining',
+          inProgress: reviewDetails.status === 'reviewing',
+          llm: 'DeepSeek R1'
+        }
+      );
+    }
+
+    // Add refinement step if we're refining
+    if (reviewDetails.status === 'refining' || reviewDetails.status === 'completed') {
+      steps.push({
+        name: 'Code Refinement',
+        icon: <CogIcon className="h-4 w-4" />,
+        completed: reviewDetails.status === 'completed',
+        inProgress: reviewDetails.status === 'refining',
+        llm: 'Gemini 2.0 Flash'
+      });
+    }
+
+    return steps;
   };
 
   const progressSteps = getProgressSteps();
@@ -83,10 +111,14 @@ const ReviewProgress = ({ status, reviewDetails }) => {
               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${
                 step.completed 
                   ? 'bg-green-100 text-green-600' 
+                  : step.inProgress
+                  ? 'bg-purple-100 text-purple-600'
                   : 'bg-gray-100 text-gray-400'
               }`}>
                 {step.completed ? (
                   <CheckCircleIcon className="h-4 w-4" />
+                ) : step.inProgress ? (
+                  <CogIcon className="h-4 w-4 animate-spin" />
                 ) : (
                   step.icon
                 )}
@@ -94,7 +126,8 @@ const ReviewProgress = ({ status, reviewDetails }) => {
               <div className="ml-3 flex-1">
                 <div className="flex items-center justify-between">
                   <p className={`text-sm font-medium ${
-                    step.completed ? 'text-green-900' : 'text-gray-500'
+                    step.completed ? 'text-green-900' : 
+                    step.inProgress ? 'text-purple-900' : 'text-gray-500'
                   }`}>
                     {step.name}
                   </p>
@@ -106,26 +139,14 @@ const ReviewProgress = ({ status, reviewDetails }) => {
         </div>
       )}
 
-      {reviewDetails?.consensus_score !== null && reviewDetails?.consensus_score !== undefined && (
+      {reviewDetails?.current_iteration !== undefined && (
         <div className="mt-4 pt-4 border-t border-gray-200">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Consensus Score</span>
-            <span className="text-sm font-semibold text-blue-600">
-              {(reviewDetails.consensus_score * 100).toFixed(1)}%
+            <span className="text-sm font-medium text-gray-700">Iteration Progress</span>
+            <span className="text-sm font-semibold text-purple-600">
+              {reviewDetails.current_iteration + 1} / {reviewDetails.max_iterations || 3}
             </span>
           </div>
-          <div className="mt-2 bg-gray-200 rounded-full h-2">
-            <div 
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${reviewDetails.consensus_score * 100}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {reviewDetails?.human_feedback_count > 0 && (
-        <div className="mt-3 text-sm text-gray-600">
-          <span className="font-medium">{reviewDetails.human_feedback_count}</span> human feedback(s) received
         </div>
       )}
     </div>
