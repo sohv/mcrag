@@ -3,8 +3,8 @@ import json
 from datetime import datetime
 from typing import Optional
 from models import (
-    CodeSubmission, ReviewSession, LLMFeedback, ReviewResult, 
-    ReviewStatus, FeedbackType, ConflictResolution, HumanFeedback
+    CodeGenerationRequest, CodeGenerationSession, GeneratedCode, CriticReview,
+    ReviewRanking, GenerationResult, GenerationStatus, FeedbackType
 )
 from llm_services import LLMService
 import logging
@@ -23,228 +23,343 @@ def to_json(data):
 def from_json(data):
     return json.loads(data)
 
-class ReviewWorkflow:
+class CodeGenerationWorkflow:
     def __init__(self, redis_client):
         self.redis = redis_client
         self.llm_service = LLMService()
         
-    async def start_review(self, submission: CodeSubmission) -> ReviewSession:
-        """Start the complete review workflow."""
-        logger.info(f"Starting review for submission {submission.id}")
+    async def start_generation(self, request: CodeGenerationRequest) -> CodeGenerationSession:
+        """Start the complete code generation and review workflow."""
+        logger.info(f"Starting code generation for request {request.id}")
         
-        # Create review session
-        session = ReviewSession(
-            submission_id=submission.id,
-            status=ReviewStatus.IN_PROGRESS
+        # Create generation session
+        session = CodeGenerationSession(
+            request_id=request.id,
+            status=GenerationStatus.GENERATING
         )
         
-        # Update submission status
-        submission.status = ReviewStatus.IN_PROGRESS
+        # Update request status
+        request.status = GenerationStatus.GENERATING
         
-        # Save initial session and update submission
+        # Save initial session and update request
         await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
-        await self.redis.setex(f"submission:{submission.id}", 86400, to_json(submission.dict()))
+        await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
         
         try:
-            # Step 1: Get coder feedback
-            logger.info("Getting coder feedback...")
-            coder_response, suggested_code, processing_time = await self.llm_service.get_coder_feedback(
-                submission.original_code, 
-                submission.language, 
-                submission.description
-            )
-            
-            coder_feedback = LLMFeedback(
-                session_id=session.id,
-                submission_id=submission.id,
-                feedback_type=FeedbackType.CODER,
-                llm_model="gemini-2.0-flash",
-                feedback_text=coder_response,
-                suggested_code=suggested_code,
-                processing_time=processing_time
-            )
-            
-            await self.redis.setex(f"feedback:{coder_feedback.id}", 86400, to_json(coder_feedback.dict()))
-            session.coder_feedback_id = coder_feedback.id
-            
-            # Step 2: Get critic feedbacks in parallel
-            logger.info("Getting critic feedbacks...")
-            critic_tasks = [
-                self.llm_service.get_critic_feedback(
-                    submission.original_code, coder_response, submission.language, 1, suggested_code
-                ),
-                self.llm_service.get_critic_feedback(
-                    submission.original_code, coder_response, submission.language, 2, suggested_code
-                )
-            ]
-            
-            critic_results = await asyncio.gather(*critic_tasks, return_exceptions=True)
-            
-            # Process critic 1 results
-            if not isinstance(critic_results[0], Exception):
-                critic1_response, critic1_time = critic_results[0]
-                critic1_feedback = LLMFeedback(
-                    session_id=session.id,
-                    submission_id=submission.id,
-                    feedback_type=FeedbackType.CRITIC1,
-                    llm_model="gpt-4o",
-                    feedback_text=critic1_response,
-                    processing_time=critic1_time
-                )
-                await self.redis.setex(f"feedback:{critic1_feedback.id}", 86400, to_json(critic1_feedback.dict()))
-                session.critic1_feedback_id = critic1_feedback.id
-            else:
-                logger.error(f"Critic 1 failed: {critic_results[0]}")
-            
-            # Process critic 2 results
-            if not isinstance(critic_results[1], Exception):
-                critic2_response, critic2_time = critic_results[1]
-                critic2_feedback = LLMFeedback(
-                    session_id=session.id,
-                    submission_id=submission.id,
-                    feedback_type=FeedbackType.CRITIC2,
-                    llm_model="deepseek-r1",  # Updated model name
-                    feedback_text=critic2_response,
-                    processing_time=critic2_time
-                )
-                await self.redis.setex(f"feedback:{critic2_feedback.id}", 86400, to_json(critic2_feedback.dict()))
-                session.critic2_feedback_id = critic2_feedback.id
-            else:
-                logger.error(f"Critic 2 failed: {critic_results[1]}")
-            
-            # Step 3: Analyze conflicts and generate consensus
-            if session.critic1_feedback_id and session.critic2_feedback_id:
-                logger.info("Analyzing conflicts and generating consensus...")
-                conflict_analysis = self.llm_service.analyze_conflicts(
-                    coder_response,
-                    critic1_response if not isinstance(critic_results[0], Exception) else "",
-                    critic2_response if not isinstance(critic_results[1], Exception) else ""
-                )
-                
-                session.conflict_resolution = conflict_analysis
-                session.consensus_score = conflict_analysis["confidence"]
-            
-            # Step 4: Generate final recommendations
-            final_recommendations = self._generate_final_recommendations(
-                coder_response,
-                critic1_response if not isinstance(critic_results[0], Exception) else None,
-                critic2_response if not isinstance(critic_results[1], Exception) else None,
-                session.conflict_resolution
-            )
-            
-            # Update session
-            session.status = ReviewStatus.COMPLETED
-            session.final_code = suggested_code
-            
-            await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
-            
-            # Update submission
-            submission.status = ReviewStatus.COMPLETED
-            await self.redis.setex(f"submission:{submission.id}", 86400, to_json(submission.dict()))
-            
-            logger.info(f"Review completed for submission {submission.id}")
-            return session
+            # Start the iterative generation and refinement process
+            await self._run_generation_cycle(session, request)
             
         except Exception as e:
-            logger.error(f"Review failed for submission {submission.id}: {str(e)}")
-            # Update session and submission status to failed
-            session.status = ReviewStatus.FAILED
-            submission.status = ReviewStatus.FAILED
+            logger.error(f"Generation workflow failed: {str(e)}")
+            session.status = GenerationStatus.FAILED
+            request.status = GenerationStatus.FAILED
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
-            await self.redis.setex(f"submission:{submission.id}", 86400, to_json(submission.dict()))
+            await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
             raise
-    
-    def _generate_final_recommendations(
-        self, 
-        coder_feedback: str, 
-        critic1_feedback: Optional[str], 
-        critic2_feedback: Optional[str],
-        conflict_resolution: Optional[dict]
-    ) -> str:
-        """Generate final recommendations based on all feedback."""
         
-        recommendations = ["## Final Code Review Recommendations\n"]
+        return session
+
+    async def _run_generation_cycle(self, session: CodeGenerationSession, request: CodeGenerationRequest):
+        """Run the iterative generation, review, and refinement cycle."""
         
-        # Add coder's main points
-        recommendations.append("### Primary Improvement Areas (from Coder)")
-        recommendations.append(coder_feedback[:500] + "...\n" if len(coder_feedback) > 500 else coder_feedback + "\n")
-        
-        # Add critic insights
-        if critic1_feedback:
-            recommendations.append("### Critical Analysis (Critic 1)")
-            recommendations.append(critic1_feedback[:300] + "...\n" if len(critic1_feedback) > 300 else critic1_feedback + "\n")
-        
-        if critic2_feedback:
-            recommendations.append("### Practical Considerations (Critic 2)")
-            recommendations.append(critic2_feedback[:300] + "...\n" if len(critic2_feedback) > 300 else critic2_feedback + "\n")
-        
-        # Add conflict resolution
-        if conflict_resolution:
-            recommendations.append("### Consensus and Resolution")
-            recommendations.append(f"**Confidence Level:** {conflict_resolution['confidence']:.1%}")
-            recommendations.append(f"**Decision:** {conflict_resolution['final_decision']}\n")
+        while session.refinement_iterations < session.max_iterations:
+            logger.info(f"Starting iteration {session.refinement_iterations + 1}")
             
-            if conflict_resolution['conflicting_points']:
-                recommendations.append("**Conflicting Points:**")
-                for point in conflict_resolution['conflicting_points']:
-                    recommendations.append(f"- {point}")
+            # Step 1: Generate code (or refine existing code)
+            if session.current_code_id is None:
+                # Initial generation
+                generated_code = await self._generate_initial_code(session, request)
+            else:
+                # Refine based on critic feedback
+                generated_code = await self._refine_code(session, request)
+            
+            session.current_code_id = generated_code.id
+            
+            # Step 2: Get critic reviews in parallel
+            session.status = GenerationStatus.REVIEWING
+            await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+            
+            critic1_review, critic2_review = await asyncio.gather(
+                self._get_critic_review(generated_code, FeedbackType.CRITIC1),
+                self._get_critic_review(generated_code, FeedbackType.CRITIC2)
+            )
+            
+            session.critic1_review_id = critic1_review.id
+            session.critic2_review_id = critic2_review.id
+            
+            # Step 3: Generator ranks the reviews and decides on refinements
+            session.status = GenerationStatus.REFINING
+            await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+            
+            ranking = await self._rank_and_plan_refinement(generated_code, critic1_review, critic2_review)
+            session.ranking_id = ranking.id
+            
+            # Check if refinement is needed
+            if self._should_stop_refinement(ranking, session):
+                # Generation is complete
+                session.status = GenerationStatus.COMPLETED
+                await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+                break
+            
+            # Continue to next iteration
+            session.refinement_iterations += 1
+            await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
         
-        return "\n".join(recommendations)
+        # If we've reached max iterations, mark as completed anyway
+        if session.status != GenerationStatus.COMPLETED:
+            session.status = GenerationStatus.COMPLETED
+            await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
     
-    async def get_review_result(self, session_id: str) -> Optional[ReviewResult]:
-        """Get complete review result for a session."""
+    async def _generate_initial_code(self, session: CodeGenerationSession, request: CodeGenerationRequest) -> GeneratedCode:
+        """Generate initial code based on user prompt."""
+        logger.info("Generating initial code...")
+        
+        prompt = f"""
+        Generate {request.language.value} code based on this request:
+        
+        User Prompt: {request.user_prompt}
+        
+        Additional Requirements: {request.requirements or 'None specified'}
+        
+        Please provide:
+        1. Clean, well-structured code
+        2. Comments explaining key parts
+        3. A brief explanation of your approach
+        """
+        
+        code_response, explanation, processing_time = await self.llm_service.get_generator_response(
+            prompt, request.language.value
+        )
+        
+        generated_code = GeneratedCode(
+            request_id=request.id,
+            session_id=session.id,
+            generated_code=code_response,
+            explanation=explanation,
+            version=1
+        )
+        
+        # Save generated code
+        await self.redis.setex(f"code:{generated_code.id}", 86400, to_json(generated_code.dict()))
+        
+        return generated_code
+
+    async def _refine_code(self, session: CodeGenerationSession, request: CodeGenerationRequest) -> GeneratedCode:
+        """Refine code based on previous critic feedback."""
+        logger.info("Refining code based on critic feedback...")
+        
+        # Get current code and latest ranking
+        current_code_data = await self.redis.get(f"code:{session.current_code_id}")
+        current_code = GeneratedCode(**from_json(current_code_data))
+        
+        ranking_data = await self.redis.get(f"ranking:{session.ranking_id}")
+        ranking = ReviewRanking(**from_json(ranking_data))
+        
+        # Get critic reviews
+        critic1_data = await self.redis.get(f"review:{session.critic1_review_id}")
+        critic1_review = CriticReview(**from_json(critic1_data))
+        
+        critic2_data = await self.redis.get(f"review:{session.critic2_review_id}")
+        critic2_review = CriticReview(**from_json(critic2_data))
+        
+        prompt = f"""
+        Refine this {request.language.value} code based on the critic feedback and your ranking:
+        
+        Original Request: {request.user_prompt}
+        
+        Current Code:
+        {current_code.generated_code}
+        
+        Critic 1 Review (Score: {ranking.critic1_score}):
+        {critic1_review.review_text}
+        Suggestions: {', '.join(critic1_review.suggestions)}
+        
+        Critic 2 Review (Score: {ranking.critic2_score}):
+        {critic2_review.review_text}
+        Suggestions: {', '.join(critic2_review.suggestions)}
+        
+        Your Incorporation Plan:
+        {ranking.incorporation_plan}
+        
+        Please refine the code following your incorporation plan and provide an explanation of changes made.
+        """
+        
+        refined_code_response, explanation, processing_time = await self.llm_service.get_generator_response(
+            prompt, request.language.value
+        )
+        
+        refined_code = GeneratedCode(
+            request_id=request.id,
+            session_id=session.id,
+            generated_code=refined_code_response,
+            explanation=explanation,
+            version=current_code.version + 1
+        )
+        
+        # Save refined code
+        await self.redis.setex(f"code:{refined_code.id}", 86400, to_json(refined_code.dict()))
+        
+        return refined_code
+
+    async def _get_critic_review(self, generated_code: GeneratedCode, critic_type: FeedbackType) -> CriticReview:
+        """Get review from a specific critic."""
+        logger.info(f"Getting {critic_type.value} review...")
+        
+        # Get the original request for context
+        request_data = await self.redis.get(f"request:{generated_code.request_id}")
+        request = CodeGenerationRequest(**from_json(request_data))
+        
+        model_name = "gpt-4o" if critic_type == FeedbackType.CRITIC1 else "deepseek-r1"
+        
+        review_text, suggestions, severity, confidence, processing_time = await self.llm_service.get_critic_review(
+            generated_code.generated_code,
+            request.user_prompt,
+            request.language.value,
+            model_name
+        )
+        
+        critic_review = CriticReview(
+            session_id=generated_code.session_id,
+            code_id=generated_code.id,
+            critic_type=critic_type,
+            llm_model=model_name,
+            review_text=review_text,
+            suggestions=suggestions,
+            severity_rating=severity,
+            confidence_score=confidence,
+            processing_time=processing_time
+        )
+        
+        # Save critic review
+        await self.redis.setex(f"review:{critic_review.id}", 86400, to_json(critic_review.dict()))
+        
+        return critic_review
+
+    async def _rank_and_plan_refinement(self, generated_code: GeneratedCode, 
+                                      critic1_review: CriticReview, 
+                                      critic2_review: CriticReview) -> ReviewRanking:
+        """Generator ranks the critic reviews and plans refinement."""
+        logger.info("Ranking critic reviews and planning refinement...")
+        
+        # Get the original request for context
+        request_data = await self.redis.get(f"request:{generated_code.request_id}")
+        request = CodeGenerationRequest(**from_json(request_data))
+        
+        ranking_text, critic1_score, critic2_score, plan = await self.llm_service.rank_reviews_and_plan(
+            generated_code.generated_code,
+            request.user_prompt,
+            critic1_review.review_text,
+            critic1_review.suggestions,
+            critic2_review.review_text,
+            critic2_review.suggestions,
+            request.language.value
+        )
+        
+        ranking = ReviewRanking(
+            session_id=generated_code.session_id,
+            code_id=generated_code.id,
+            critic1_review_id=critic1_review.id,
+            critic2_review_id=critic2_review.id,
+            ranking_explanation=ranking_text,
+            critic1_score=critic1_score,
+            critic2_score=critic2_score,
+            incorporation_plan=plan
+        )
+        
+        # Save ranking
+        await self.redis.setex(f"ranking:{ranking.id}", 86400, to_json(ranking.dict()))
+        
+        return ranking
+
+    def _should_stop_refinement(self, ranking: ReviewRanking, session: CodeGenerationSession) -> bool:
+        """Decide if refinement should stop based on ranking and iteration count."""
+        
+        # Stop if both critics gave low scores (code is good enough)
+        if ranking.critic1_score < 0.3 and ranking.critic2_score < 0.3:
+            return True
+        
+        # Stop if we're at max iterations
+        if session.refinement_iterations >= session.max_iterations - 1:
+            return True
+        
+        # Continue refinement if critics found significant issues
+        return False
+
+    async def get_generation_result(self, session_id: str) -> Optional[GenerationResult]:
+        """Get the complete generation result."""
         try:
             # Get session
             session_data = await self.redis.get(f"session:{session_id}")
             if not session_data:
                 return None
-            session = ReviewSession(**from_json(session_data))
             
-            # Get submission
-            submission_data = await self.redis.get(f"submission:{session.submission_id}")
-            if not submission_data:
+            session = CodeGenerationSession(**from_json(session_data))
+            
+            # Get request
+            request_data = await self.redis.get(f"request:{session.request_id}")
+            if not request_data:
                 return None
-            submission = CodeSubmission(**from_json(submission_data))
             
-            # Get feedbacks
-            coder_feedback = None
-            if session.coder_feedback_id:
-                feedback_data = await self.redis.get(f"feedback:{session.coder_feedback_id}")
-                if feedback_data:
-                    coder_feedback = LLMFeedback(**from_json(feedback_data))
+            request = CodeGenerationRequest(**from_json(request_data))
             
-            critic_feedbacks = []
-            for critic_id in [session.critic1_feedback_id, session.critic2_feedback_id]:
-                if critic_id:
-                    feedback_data = await self.redis.get(f"feedback:{critic_id}")
-                    if feedback_data:
-                        critic_feedbacks.append(LLMFeedback(**from_json(feedback_data)))
+            # Get all generated codes for this session
+            generated_codes = []
+            current_code_id = session.current_code_id
             
-            # Get human feedbacks
-            human_feedbacks = []
-            if session.human_feedback_ids:
-                for feedback_id in session.human_feedback_ids:
-                    feedback_data = await self.redis.get(f"human_feedback:{feedback_id}")
-                    if feedback_data:
-                        human_feedbacks.append(HumanFeedback(**from_json(feedback_data)))
+            if current_code_id:
+                code_data = await self.redis.get(f"code:{current_code_id}")
+                if code_data:
+                    generated_codes.append(GeneratedCode(**from_json(code_data)))
             
-            # Generate final recommendations
-            final_recommendations = self._generate_final_recommendations(
-                coder_feedback.feedback_text if coder_feedback else "",
-                critic_feedbacks[0].feedback_text if len(critic_feedbacks) > 0 else None,
-                critic_feedbacks[1].feedback_text if len(critic_feedbacks) > 1 else None,
-                session.conflict_resolution
-            )
+            # Get all critic reviews
+            critic_reviews = []
+            if session.critic1_review_id:
+                review_data = await self.redis.get(f"review:{session.critic1_review_id}")
+                if review_data:
+                    critic_reviews.append(CriticReview(**from_json(review_data)))
             
-            return ReviewResult(
+            if session.critic2_review_id:
+                review_data = await self.redis.get(f"review:{session.critic2_review_id}")
+                if review_data:
+                    critic_reviews.append(CriticReview(**from_json(review_data)))
+            
+            # Get rankings
+            rankings = []
+            if session.ranking_id:
+                ranking_data = await self.redis.get(f"ranking:{session.ranking_id}")
+                if ranking_data:
+                    rankings.append(ReviewRanking(**from_json(ranking_data)))
+            
+            # Get final code
+            final_code = None
+            if generated_codes:
+                final_code = generated_codes[-1].generated_code  # Latest version
+            
+            return GenerationResult(
                 session=session,
-                submission=submission,
-                coder_feedback=coder_feedback,
-                critic_feedbacks=critic_feedbacks,
-                human_feedbacks=human_feedbacks,
-                final_recommendations=final_recommendations
+                request=request,
+                generated_codes=generated_codes,
+                critic_reviews=critic_reviews,
+                rankings=rankings,
+                final_code=final_code,
+                generation_summary=self._create_summary(session, generated_codes, critic_reviews)
             )
             
         except Exception as e:
-            logger.error(f"Error getting review result for session {session_id}: {str(e)}")
+            logger.error(f"Error getting generation result: {str(e)}")
             return None
+
+    def _create_summary(self, session: CodeGenerationSession, 
+                       generated_codes: list, critic_reviews: list) -> str:
+        """Create a summary of the generation process."""
+        summary = f"Generation completed in {session.refinement_iterations + 1} iterations.\n"
+        
+        if generated_codes:
+            summary += f"Final code version: {generated_codes[-1].version}\n"
+        
+        if critic_reviews:
+            summary += f"Total critic reviews: {len(critic_reviews)}\n"
+        
+        summary += f"Status: {session.status.value}"
+        
+        return summary

@@ -16,221 +16,312 @@ class LLMService:
         
     def _get_system_prompt(self, role: str, language: ProgrammingLanguage) -> str:
         """Generate system prompts based on role and programming language."""
-        base_context = f"You are an expert {language.value} developer working on a code review system."
+        base_context = f"You are an expert {language.value} developer working on a code generation and review system."
         
-        if role == "coder":
+        if role == "generator":
             return f"""{base_context}
 
-Your role is CODER. You will receive code from users and provide thoughtful improvements and suggestions.
+Your role is GENERATOR. You will:
+1. Generate code based on user prompts
+2. Rank critic feedback and incorporate improvements
+3. Refine code iteratively based on critic reviews
 
-Guidelines:
-1. Analyze the code for best practices, efficiency, readability, and maintainability
-2. Suggest specific improvements with clear explanations
-3. Provide improved code snippets when helpful
-4. Focus on practical, actionable feedback
-5. Consider security, performance, and scalability aspects
-6. Be constructive and educational
+Guidelines for Generation:
+- Write clean, well-structured, documented code
+- Follow language best practices and conventions
+- Include helpful comments explaining complex logic
+- Consider edge cases and error handling
+- Make code readable and maintainable
 
-Response format:
-- Start with a brief summary of the code's purpose
-- List 3-5 key improvement areas
-- Provide specific code suggestions
-- End with overall assessment and priority recommendations
+Guidelines for Ranking Reviews:
+- Evaluate each critic's feedback objectively
+- Assign scores (0-1) based on feedback quality and relevance
+- Higher scores for more valuable, accurate, actionable feedback
+- Create incorporation plans that address the most important issues
 
-Keep your response focused and actionable."""
+Response format varies by task - follow specific instructions in each prompt."""
 
         elif role == "critic1":
             return f"""{base_context}
 
-Your role is CRITIC 1. You will review the CODER's suggestions and provide critical feedback.
+Your role is CRITIC 1 (GPT-4o). You will review generated code and provide detailed feedback.
 
 Guidelines:
-1. Evaluate the coder's suggestions for accuracy and completeness
-2. Identify any missed issues or incorrect recommendations
-3. Assess whether the suggested improvements are practical and beneficial
-4. Point out any potential problems with the coder's approach
-5. Suggest alternative solutions if needed
-6. Focus on technical accuracy and best practices
+1. Analyze code for correctness, efficiency, and best practices
+2. Check for potential bugs, security issues, and edge cases
+3. Evaluate code structure, readability, and maintainability
+4. Suggest specific improvements with clear rationale
+5. Rate severity of issues (1=minor to 5=critical)
+6. Be thorough but practical
 
 Response format:
-- Evaluate each major suggestion from the coder
-- Highlight what was done well
-- Point out areas that need improvement or are incorrect
-- Suggest additional considerations
-- Provide an overall assessment of the coder's review quality
+- Overall assessment
+- List of specific issues found
+- Concrete suggestions for improvement
+- Severity ratings for each issue"""
 
-Be thorough but constructive in your criticism."""
-
-        else:  # critic2
+        elif role == "critic2":
             return f"""{base_context}
 
-Your role is CRITIC 2 (powered by DeepSeek R1). You will review both the original code and the CODER's suggestions from a different perspective, leveraging advanced reasoning capabilities.
+Your role is CRITIC 2 (DeepSeek-R1). You will review generated code with a focus on optimization and advanced techniques.
 
 Guidelines:
-1. Focus on maintainability, team collaboration, and long-term codebase health
-2. Consider the business context and practical implementation challenges
-3. Evaluate code documentation and clarity aspects
-4. Assess testing considerations and error handling
-5. Review the coder's suggestions for real-world applicability
-6. Consider alternative approaches or architectural patterns
-7. Apply deep reasoning to identify subtle issues or improvements
+1. Focus on performance optimization and algorithmic efficiency
+2. Identify opportunities for better design patterns
+3. Suggest advanced language features that could improve the code
+4. Check for scalability and robustness
+5. Evaluate error handling and fault tolerance
+6. Consider maintainability and extensibility
 
 Response format:
-- Assess the code from a maintainability and team perspective
-- Evaluate the practical impact of suggested changes
-- Consider deployment, testing, and operational aspects
-- Suggest additional improvements not covered by the coder
-- Provide perspective on trade-offs and priorities
-- Apply reasoning chains to complex architectural decisions
+- Performance and design assessment
+- Optimization opportunities
+- Advanced improvement suggestions
+- Scalability considerations"""
 
-Focus on the broader implications and practical considerations with deep analytical thinking."""
+        return ""
 
-    async def get_coder_feedback(self, code: str, language: ProgrammingLanguage, description: Optional[str] = None) -> Tuple[str, Optional[str], float]:
-        """Get feedback from the coder LLM (Gemini)."""
+    async def get_generator_response(self, prompt: str, language: str) -> Tuple[str, str, float]:
+        """Get response from the generator (Gemini 2.0 Flash)."""
         start_time = time.time()
         
         try:
-            session_id = f"coder_{int(time.time())}"
-            system_prompt = self._get_system_prompt("coder", language)
-            
             chat = LlmChat(
-                api_key=self.gemini_key,
-                session_id=session_id,
-                system_message=system_prompt
-            ).with_model("gemini", "gemini-2.0-flash")
+                provider="gemini",
+                model="gemini-2.0-flash-exp",
+                api_key=self.gemini_key
+            )
             
-            user_prompt = f"""Please review the following {language.value} code and provide improvement suggestions:
+            system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
+            
+            response = await chat.send_message_async(
+                UserMessage(prompt),
+                system_prompt=system_prompt,
+                temperature=0.7
+            )
+            
+            processing_time = time.time() - start_time
+            
+            # Parse response to extract code and explanation
+            response_text = response.content
+            
+            # Try to extract code and explanation
+            if "```" in response_text:
+                parts = response_text.split("```")
+                if len(parts) >= 3:
+                    code = parts[1]
+                    # Remove language identifier if present
+                    if code.startswith(language):
+                        code = code[len(language):].strip()
+                    explanation = parts[0] + (parts[2] if len(parts) > 2 else "")
+                else:
+                    code = response_text
+                    explanation = "Code generated"
+            else:
+                code = response_text
+                explanation = "Code generated"
+            
+            return code.strip(), explanation.strip(), processing_time
+            
+        except Exception as e:
+            logger.error(f"Error getting generator response: {str(e)}")
+            processing_time = time.time() - start_time
+            return f"# Error generating code: {str(e)}", "Generation failed", processing_time
 
-{f'**Description:** {description}' if description else ''}
+    async def get_critic_review(self, code: str, original_prompt: str, language: str, model_name: str) -> Tuple[str, List[str], int, float, float]:
+        """Get review from a critic."""
+        start_time = time.time()
+        
+        try:
+            if model_name == "gpt-4o":
+                chat = LlmChat(
+                    provider="openai",
+                    model="gpt-4o",
+                    api_key=self.openai_key
+                )
+                role = "critic1"
+            else:  # deepseek-r1
+                chat = LlmChat(
+                    provider="deepseek",
+                    model="deepseek-r1",
+                    api_key=self.deepseek_key
+                )
+                role = "critic2"
+            
+            system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
+            
+            review_prompt = f"""
+Review this {language} code that was generated for the following request:
 
-**Code:**
-```{language.value}
+Original Request: {original_prompt}
+
+Generated Code:
+```{language}
 {code}
 ```
 
-Please provide your analysis and suggestions following the guidelines in your system prompt."""
-
-            user_message = UserMessage(text=user_prompt)
-            response = await chat.send_message(user_message)
+Please provide a thorough review following your role guidelines.
+Include:
+1. Overall assessment
+2. Specific issues (if any)
+3. Suggestions for improvement
+4. Severity rating (1-5) for the most critical issue found
+"""
+            
+            response = await chat.send_message_async(
+                UserMessage(review_prompt),
+                system_prompt=system_prompt,
+                temperature=0.3
+            )
             
             processing_time = time.time() - start_time
             
-            # Extract suggested code if present (basic pattern matching)
-            suggested_code = None
-            if "```" in response:
-                code_blocks = response.split("```")
-                for i, block in enumerate(code_blocks):
-                    if i % 2 == 1 and (language.value in code_blocks[i-1].lower() if i > 0 else True):
-                        # Remove language identifier from start of block
-                        lines = block.strip().split('\n')
-                        if lines and lines[0].strip().lower() in [language.value, language.value.lower()]:
-                            lines = lines[1:]
-                        suggested_code = '\n'.join(lines).strip()
-                        break
+            # Parse response
+            review_text = response.content
             
-            return response, suggested_code, processing_time
+            # Extract suggestions (look for bullet points or numbered lists)
+            suggestions = []
+            lines = review_text.split('\n')
+            for line in lines:
+                line = line.strip()
+                if (line.startswith('- ') or line.startswith('* ') or 
+                    (len(line) > 2 and line[0].isdigit() and line[1:3] in ['. ', ') '])):
+                    suggestions.append(line[2:] if line.startswith(('- ', '* ')) else line[3:])
+            
+            # Extract severity rating (default to 3 if not found)
+            severity = 3
+            if "severity" in review_text.lower():
+                import re
+                severity_match = re.search(r'severity[^\d]*(\d)', review_text.lower())
+                if severity_match:
+                    severity = int(severity_match.group(1))
+            
+            # Confidence score based on response length and specificity
+            confidence = min(0.9, len(review_text) / 1000 + 0.3)
+            
+            return review_text, suggestions[:5], severity, confidence, processing_time
             
         except Exception as e:
-            logger.error(f"Error getting coder feedback: {str(e)}")
-            raise
+            logger.error(f"Error getting critic review from {model_name}: {str(e)}")
+            processing_time = time.time() - start_time
+            return f"Error during review: {str(e)}", [], 5, 0.1, processing_time
 
-    async def get_critic_feedback(self, original_code: str, coder_feedback: str, language: ProgrammingLanguage, critic_number: int, suggested_code: Optional[str] = None) -> Tuple[str, float]:
-        """Get feedback from critic LLMs (OpenAI or DeepSeek R1)."""
+    async def rank_reviews_and_plan(self, code: str, original_prompt: str, 
+                                  critic1_review: str, critic1_suggestions: List[str],
+                                  critic2_review: str, critic2_suggestions: List[str],
+                                  language: str) -> Tuple[str, float, float, str]:
+        """Generator ranks critic reviews and creates incorporation plan."""
         start_time = time.time()
         
         try:
-            session_id = f"critic{critic_number}_{int(time.time())}"
-            role = f"critic{critic_number}"
-            system_prompt = self._get_system_prompt(role, language)
+            chat = LlmChat(
+                provider="gemini",
+                model="gemini-2.0-flash-exp",
+                api_key=self.gemini_key
+            )
             
-            if critic_number == 1:
-                # Use OpenAI for Critic 1
-                chat = LlmChat(
-                    api_key=self.openai_key,
-                    session_id=session_id,
-                    system_message=system_prompt
-                ).with_model("openai", "gpt-4o")
-            else:
-                # Use DeepSeek R1 for Critic 2
-                # Try with DeepSeek R1 model, fall back to available model if needed
-                try:
-                    chat = LlmChat(
-                        api_key=self.deepseek_key,
-                        session_id=session_id,
-                        system_message=system_prompt
-                    ).with_model("deepseek", "deepseek-r1")  # Use DeepSeek R1 model
-                except:
-                    # If deepseek-r1 doesn't work, try with OpenAI as fallback
-                    logger.warning("DeepSeek R1 not available, falling back to OpenAI")
-                    chat = LlmChat(
-                        api_key=self.openai_key,
-                        session_id=session_id,
-                        system_message=system_prompt
-                    ).with_model("openai", "gpt-4o")
+            system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
             
-            user_prompt = f"""Please review the following code review scenario:
+            ranking_prompt = f"""
+You generated this {language} code for the request: {original_prompt}
 
-**Original {language.value} Code:**
-```{language.value}
-{original_code}
+Your Generated Code:
+```{language}
+{code}
 ```
 
-**Coder's Feedback:**
-{coder_feedback}
+Now review the feedback from two critics and rank their reviews:
 
-{f'''**Coder's Suggested Code:**
-```{language.value}
-{suggested_code}
-```''' if suggested_code else ''}
+CRITIC 1 REVIEW:
+{critic1_review}
 
-Please provide your critical analysis following the guidelines in your system prompt."""
+Critic 1 Suggestions:
+{chr(10).join([f"- {s}" for s in critic1_suggestions])}
 
-            user_message = UserMessage(text=user_prompt)
-            response = await chat.send_message(user_message)
+CRITIC 2 REVIEW:
+{critic2_review}
+
+Critic 2 Suggestions:
+{chr(10).join([f"- {s}" for s in critic2_suggestions])}
+
+Tasks:
+1. Evaluate each critic's feedback quality and relevance
+2. Assign scores (0.0-1.0) to each critic based on value of their feedback
+3. Create a plan for incorporating the most valuable feedback
+
+Respond in this format:
+RANKING EXPLANATION:
+[Your analysis of both reviews]
+
+CRITIC 1 SCORE: [0.0-1.0]
+CRITIC 2 SCORE: [0.0-1.0]
+
+INCORPORATION PLAN:
+[Detailed plan for how to improve the code based on the most valuable feedback]
+"""
             
-            processing_time = time.time() - start_time
-            return response, processing_time
+            response = await chat.send_message_async(
+                UserMessage(ranking_prompt),
+                system_prompt=system_prompt,
+                temperature=0.5
+            )
+            
+            # Parse response
+            response_text = response.content
+            
+            # Extract scores and plan
+            import re
+            
+            critic1_score_match = re.search(r'CRITIC 1 SCORE:\s*([0-9.]+)', response_text)
+            critic2_score_match = re.search(r'CRITIC 2 SCORE:\s*([0-9.]+)', response_text)
+            
+            critic1_score = float(critic1_score_match.group(1)) if critic1_score_match else 0.5
+            critic2_score = float(critic2_score_match.group(1)) if critic2_score_match else 0.5
+            
+            # Ensure scores are in valid range
+            critic1_score = max(0.0, min(1.0, critic1_score))
+            critic2_score = max(0.0, min(1.0, critic2_score))
+            
+            # Extract explanation and plan
+            parts = response_text.split('INCORPORATION PLAN:')
+            explanation = parts[0].replace('RANKING EXPLANATION:', '').strip()
+            plan = parts[1].strip() if len(parts) > 1 else "No specific plan provided"
+            
+            return explanation, critic1_score, critic2_score, plan
             
         except Exception as e:
-            logger.error(f"Error getting critic {critic_number} feedback: {str(e)}")
-            raise
+            logger.error(f"Error ranking reviews: {str(e)}")
+            return f"Error during ranking: {str(e)}", 0.5, 0.5, "Unable to create incorporation plan"
 
-    def analyze_conflicts(self, coder_feedback: str, critic1_feedback: str, critic2_feedback: str) -> Dict:
-        """Analyze conflicts between different LLM feedbacks and suggest resolution."""
-        # Simple conflict detection based on keywords and sentiment
-        # In a production system, this would be more sophisticated
+    async def check_llm_availability(self) -> Dict[str, bool]:
+        """Check availability of all LLM services."""
+        results = {}
         
-        conflicts = []
+        # Test Gemini (Generator)
+        try:
+            chat = LlmChat(provider="gemini", model="gemini-2.0-flash-exp", api_key=self.gemini_key)
+            await chat.send_message_async(UserMessage("Hello"), temperature=0.1)
+            results["gemini-2.0-flash-exp"] = True
+        except Exception as e:
+            logger.error(f"Gemini availability check failed: {str(e)}")
+            results["gemini-2.0-flash-exp"] = False
         
-        # Keywords that might indicate disagreement
-        disagreement_keywords = ["wrong", "incorrect", "disagree", "however", "but", "actually", "instead"]
-        agreement_keywords = ["agree", "correct", "good point", "excellent", "right"]
+        # Test OpenAI (Critic 1)
+        try:
+            chat = LlmChat(provider="openai", model="gpt-4o", api_key=self.openai_key)
+            await chat.send_message_async(UserMessage("Hello"), temperature=0.1)
+            results["gpt-4o"] = True
+        except Exception as e:
+            logger.error(f"OpenAI availability check failed: {str(e)}")
+            results["gpt-4o"] = False
         
-        # Check if critics disagree with coder
-        critic1_disagrees = any(keyword in critic1_feedback.lower() for keyword in disagreement_keywords)
-        critic2_disagrees = any(keyword in critic2_feedback.lower() for keyword in disagreement_keywords)
+        # Test DeepSeek (Critic 2)
+        try:
+            chat = LlmChat(provider="deepseek", model="deepseek-r1", api_key=self.deepseek_key)
+            await chat.send_message_async(UserMessage("Hello"), temperature=0.1)
+            results["deepseek-r1"] = True
+        except Exception as e:
+            logger.error(f"DeepSeek availability check failed: {str(e)}")
+            results["deepseek-r1"] = False
         
-        if critic1_disagrees:
-            conflicts.append("Critic 1 disagrees with some of the coder's suggestions")
-            
-        if critic2_disagrees:
-            conflicts.append("Critic 2 disagrees with some of the coder's suggestions")
-        
-        # Simple resolution strategy
-        resolution_strategy = "consensus_based"
-        if len(conflicts) == 0:
-            final_decision = "All LLMs are in general agreement. Follow the coder's suggestions with minor adjustments from critics."
-            confidence = 0.9
-        elif len(conflicts) == 1:
-            final_decision = "Mixed feedback received. Prioritize the coder's suggestions but carefully consider the critical feedback."
-            confidence = 0.7
-        else:
-            final_decision = "Significant disagreement detected. Human review recommended before implementing changes."
-            confidence = 0.5
-        
-        return {
-            "conflicting_points": conflicts,
-            "resolution_strategy": resolution_strategy,
-            "final_decision": final_decision,
-            "confidence": confidence
-        }
+        return results
