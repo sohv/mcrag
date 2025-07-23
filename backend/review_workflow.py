@@ -93,7 +93,7 @@ class ReviewWorkflow:
                     session_id=session.id,
                     submission_id=submission.id,
                     feedback_type=FeedbackType.CRITIC2,
-                    llm_model="deepseek-chat",  # Updated model name
+                    llm_model="deepseek-r1",  # Updated model name
                     feedback_text=critic2_response,
                     processing_time=critic2_time
                 )

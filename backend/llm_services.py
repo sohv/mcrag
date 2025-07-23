@@ -64,7 +64,7 @@ Be thorough but constructive in your criticism."""
         else:  # critic2
             return f"""{base_context}
 
-Your role is CRITIC 2. You will review both the original code and the CODER's suggestions from a different perspective.
+Your role is CRITIC 2 (powered by DeepSeek R1). You will review both the original code and the CODER's suggestions from a different perspective, leveraging advanced reasoning capabilities.
 
 Guidelines:
 1. Focus on maintainability, team collaboration, and long-term codebase health
@@ -73,6 +73,7 @@ Guidelines:
 4. Assess testing considerations and error handling
 5. Review the coder's suggestions for real-world applicability
 6. Consider alternative approaches or architectural patterns
+7. Apply deep reasoning to identify subtle issues or improvements
 
 Response format:
 - Assess the code from a maintainability and team perspective
@@ -80,8 +81,9 @@ Response format:
 - Consider deployment, testing, and operational aspects
 - Suggest additional improvements not covered by the coder
 - Provide perspective on trade-offs and priorities
+- Apply reasoning chains to complex architectural decisions
 
-Focus on the broader implications and practical considerations."""
+Focus on the broader implications and practical considerations with deep analytical thinking."""
 
     async def get_coder_feedback(self, code: str, language: ProgrammingLanguage, description: Optional[str] = None) -> Tuple[str, Optional[str], float]:
         """Get feedback from the coder LLM (Gemini)."""
@@ -133,7 +135,7 @@ Please provide your analysis and suggestions following the guidelines in your sy
             raise
 
     async def get_critic_feedback(self, original_code: str, coder_feedback: str, language: ProgrammingLanguage, critic_number: int, suggested_code: Optional[str] = None) -> Tuple[str, float]:
-        """Get feedback from critic LLMs (OpenAI or DeepSeek)."""
+        """Get feedback from critic LLMs (OpenAI or DeepSeek R1)."""
         start_time = time.time()
         
         try:
@@ -149,17 +151,17 @@ Please provide your analysis and suggestions following the guidelines in your sy
                     system_message=system_prompt
                 ).with_model("openai", "gpt-4o")
             else:
-                # Use DeepSeek for Critic 2
-                # Try with DeepSeek chat model, fall back to available model if needed
+                # Use DeepSeek R1 for Critic 2
+                # Try with DeepSeek R1 model, fall back to available model if needed
                 try:
                     chat = LlmChat(
                         api_key=self.deepseek_key,
                         session_id=session_id,
                         system_message=system_prompt
-                    ).with_model("deepseek", "deepseek-chat")  # Use correct model name
+                    ).with_model("deepseek", "deepseek-r1")  # Use DeepSeek R1 model
                 except:
-                    # If deepseek-chat doesn't work, try with OpenAI as fallback
-                    logger.warning("DeepSeek deepseek-chat not available, falling back to OpenAI")
+                    # If deepseek-r1 doesn't work, try with OpenAI as fallback
+                    logger.warning("DeepSeek R1 not available, falling back to OpenAI")
                     chat = LlmChat(
                         api_key=self.openai_key,
                         session_id=session_id,
