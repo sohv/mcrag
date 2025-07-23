@@ -77,7 +77,9 @@ class CodeGenerationWorkflow:
             
             # Step 2: Get critic reviews in parallel
             session.status = GenerationStatus.REVIEWING
+            request.status = GenerationStatus.REVIEWING  # Update request status too
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+            await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
             
             critic1_review, critic2_review = await asyncio.gather(
                 self._get_critic_review(generated_code, FeedbackType.CRITIC1),
@@ -89,7 +91,9 @@ class CodeGenerationWorkflow:
             
             # Step 3: Generator ranks the reviews and decides on refinements
             session.status = GenerationStatus.REFINING
+            request.status = GenerationStatus.REFINING  # Update request status too
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+            await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
             
             ranking = await self._rank_and_plan_refinement(generated_code, critic1_review, critic2_review)
             session.ranking_id = ranking.id
@@ -98,17 +102,24 @@ class CodeGenerationWorkflow:
             if self._should_stop_refinement(ranking, session):
                 # Generation is complete
                 session.status = GenerationStatus.COMPLETED
+                request.status = GenerationStatus.COMPLETED  # Update request status too
                 await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+                await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
                 break
             
-            # Continue to next iteration
+            # Continue to next iteration (go back to GENERATING for next iteration)
             session.refinement_iterations += 1
+            session.status = GenerationStatus.GENERATING  # Next iteration starts with generation
+            request.status = GenerationStatus.GENERATING
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+            await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
         
         # If we've reached max iterations, mark as completed anyway
         if session.status != GenerationStatus.COMPLETED:
             session.status = GenerationStatus.COMPLETED
+            request.status = GenerationStatus.COMPLETED
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+            await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
     
     async def _generate_initial_code(self, session: CodeGenerationSession, request: CodeGenerationRequest) -> GeneratedCode:
         """Generate initial code based on user prompt."""
@@ -130,6 +141,12 @@ class CodeGenerationWorkflow:
         code_response, explanation, processing_time = await self.llm_service.get_generator_response(
             prompt, request.language.value
         )
+        
+        # Check if code generation failed
+        if code_response.startswith("# Error generating code"):
+            logger.error(f"Code generation failed: {explanation}")
+            # Still create the object but mark it clearly as failed
+            explanation = f"GENERATION FAILED: {explanation}"
         
         generated_code = GeneratedCode(
             request_id=request.id,
@@ -187,6 +204,11 @@ class CodeGenerationWorkflow:
         refined_code_response, explanation, processing_time = await self.llm_service.get_generator_response(
             prompt, request.language.value
         )
+        
+        # Check if code refinement failed
+        if refined_code_response.startswith("# Error generating code"):
+            logger.error(f"Code refinement failed: {explanation}")
+            explanation = f"REFINEMENT FAILED: {explanation}"
         
         refined_code = GeneratedCode(
             request_id=request.id,
@@ -255,6 +277,10 @@ class CodeGenerationWorkflow:
             request.language.value
         )
         
+        # Check if ranking failed due to errors (like rate limits)
+        if "Error during ranking" in ranking_text:
+            logger.warning(f"Ranking failed, forcing completion: {ranking_text}")
+        
         ranking = ReviewRanking(
             session_id=generated_code.session_id,
             code_id=generated_code.id,
@@ -274,15 +300,26 @@ class CodeGenerationWorkflow:
     def _should_stop_refinement(self, ranking: ReviewRanking, session: CodeGenerationSession) -> bool:
         """Decide if refinement should stop based on ranking and iteration count."""
         
-        # Stop if both critics gave low scores (code is good enough)
-        if ranking.critic1_score < 0.3 and ranking.critic2_score < 0.3:
-            return True
+        logger.info(f"Refinement decision - Iteration: {session.refinement_iterations + 1}/{session.max_iterations}, "
+                   f"Critic scores: C1={ranking.critic1_score:.2f}, C2={ranking.critic2_score:.2f}")
         
         # Stop if we're at max iterations
         if session.refinement_iterations >= session.max_iterations - 1:
+            logger.info(f"STOP: Reached max iterations ({session.refinement_iterations + 1}/{session.max_iterations})")
             return True
         
-        # Continue refinement if critics found significant issues
+        # Stop if ranking failed (error state)
+        if "Error during ranking" in ranking.ranking_explanation:
+            logger.info(f"STOP: Ranking failed - {ranking.ranking_explanation}")
+            return True
+        
+        # Stop if both critics gave low scores (poor feedback quality - nothing useful to incorporate)
+        if ranking.critic1_score < 0.3 and ranking.critic2_score < 0.3:
+            logger.info(f"STOP: Both critics gave low scores - poor feedback quality")
+            return True
+        
+        # Continue refinement if critics provided valuable feedback (high scores)
+        logger.info(f"CONTINUE: Critics provided valuable feedback worth incorporating")
         return False
 
     async def get_generation_result(self, session_id: str) -> Optional[GenerationResult]:

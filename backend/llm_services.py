@@ -15,6 +15,10 @@ class LLMService:
         self.gemini_key = os.environ.get('GEMINI_API_KEY')
         self.deepseek_key = os.environ.get('DEEPSEEK_API_KEY')
         
+        # Rate limiting for Gemini (10 requests per minute on free tier)
+        self.gemini_last_request_time = 0
+        self.gemini_min_interval = 6  # 6 seconds between requests (10 per minute)
+        
         # Configure APIs
         if self.gemini_key:
             genai.configure(api_key=self.gemini_key)
@@ -86,11 +90,44 @@ Response format:
 
         return ""
 
+    async def _wait_for_gemini_rate_limit(self):
+        """Ensure we don't exceed Gemini rate limits."""
+        current_time = time.time()
+        time_since_last_request = current_time - self.gemini_last_request_time
+        
+        if time_since_last_request < self.gemini_min_interval:
+            wait_time = self.gemini_min_interval - time_since_last_request
+            logger.info(f"Rate limiting: waiting {wait_time:.1f} seconds before Gemini request")
+            await asyncio.sleep(wait_time)
+        
+        self.gemini_last_request_time = time.time()
+
+    async def _handle_rate_limit_error(self, error_str: str) -> bool:
+        """Handle rate limit errors with exponential backoff."""
+        if "429" in error_str and "quota" in error_str.lower():
+            # Extract retry delay if provided
+            import re
+            retry_match = re.search(r'retry_delay\s*{\s*seconds:\s*(\d+)', error_str)
+            if retry_match:
+                retry_seconds = int(retry_match.group(1))
+                logger.info(f"Rate limit hit, waiting {retry_seconds} seconds as suggested by API")
+                await asyncio.sleep(retry_seconds)
+                return True
+            else:
+                # Default backoff
+                logger.info("Rate limit hit, waiting 60 seconds (default backoff)")
+                await asyncio.sleep(60)
+                return True
+        return False
+
     async def get_generator_response(self, prompt: str, language: str) -> Tuple[str, str, float]:
         """Get response from the generator (Gemini 2.0 Flash)."""
         start_time = time.time()
         
         try:
+            # Rate limiting for Gemini
+            await self._wait_for_gemini_rate_limit()
+            
             model = genai.GenerativeModel('gemini-2.0-flash-exp')
             system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
             
@@ -124,7 +161,39 @@ Response format:
             return code.strip(), explanation.strip(), processing_time
             
         except Exception as e:
-            logger.error(f"Error getting generator response: {str(e)}")
+            error_str = str(e)
+            logger.error(f"Error getting generator response: {error_str}")
+            
+            # Try to handle rate limit with retry
+            if await self._handle_rate_limit_error(error_str):
+                try:
+                    # Retry once after waiting
+                    response = await asyncio.get_event_loop().run_in_executor(
+                        None, model.generate_content, full_prompt
+                    )
+                    
+                    processing_time = time.time() - start_time
+                    response_text = response.text
+                    
+                    # Parse response again
+                    if "```" in response_text:
+                        parts = response_text.split("```")
+                        if len(parts) >= 3:
+                            code = parts[1]
+                            if code.startswith(language):
+                                code = code[len(language):].strip()
+                            explanation = parts[0] + (parts[2] if len(parts) > 2 else "")
+                        else:
+                            code = response_text
+                            explanation = "Code generated"
+                    else:
+                        code = response_text
+                        explanation = "Code generated"
+                    
+                    return code.strip(), explanation.strip(), processing_time
+                except Exception as retry_e:
+                    logger.error(f"Retry also failed: {str(retry_e)}")
+            
             processing_time = time.time() - start_time
             return f"# Error generating code: {str(e)}", "Generation failed", processing_time
 
@@ -174,6 +243,7 @@ Include:
                 system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
                 
                 # Use Gemini as a fallback for the second critic
+                await self._wait_for_gemini_rate_limit()
                 model = genai.GenerativeModel('gemini-2.0-flash-exp')
                 
                 review_prompt = f"""
@@ -238,6 +308,7 @@ Focus on performance optimization and advanced techniques. Provide:
         start_time = time.time()
         
         try:
+            await self._wait_for_gemini_rate_limit()
             model = genai.GenerativeModel('gemini-2.0-flash-exp')
             system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
             
@@ -308,7 +379,8 @@ INCORPORATION PLAN:
             
         except Exception as e:
             logger.error(f"Error ranking reviews: {str(e)}")
-            return f"Error during ranking: {str(e)}", 0.5, 0.5, "Unable to create incorporation plan"
+            # If ranking fails, return low scores to stop refinement (can't incorporate feedback properly)
+            return f"Error during ranking: {str(e)}", 0.1, 0.1, "Unable to create incorporation plan - stopping refinement"
 
     async def check_llm_availability(self) -> Dict[str, bool]:
         """Check availability of all LLM services."""
@@ -316,6 +388,7 @@ INCORPORATION PLAN:
         
         # Test Gemini (Generator)
         try:
+            await self._wait_for_gemini_rate_limit()
             model = genai.GenerativeModel('gemini-2.0-flash-exp')
             await asyncio.get_event_loop().run_in_executor(
                 None, model.generate_content, "Hello"
