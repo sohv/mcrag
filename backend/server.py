@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 import json
+from datetime import datetime
 
 # Import our models and services
 from models import (
@@ -14,6 +15,18 @@ from models import (
     StatusCheck, StatusCheckCreate
 )
 from review_workflow import ReviewWorkflow
+
+# Custom JSON encoder to handle datetime objects
+def json_serializer(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+def to_json(data):
+    return json.dumps(data, default=json_serializer)
+
+def from_json(data):
+    return json.loads(data)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -41,7 +54,7 @@ async def create_status_check(input: StatusCheckCreate):
     status_dict = input.dict()
     status_obj = StatusCheck(**status_dict)
     # Store in Redis with expiration (24 hours)
-    await redis_client.setex(f"status:{status_obj.id}", 86400, json.dumps(status_obj.dict()))
+    await redis_client.setex(f"status:{status_obj.id}", 86400, to_json(status_obj.dict()))
     return status_obj
 
 @api_router.get("/status")
@@ -52,7 +65,7 @@ async def get_status_checks():
     for key in keys:
         data = await redis_client.get(key)
         if data:
-            status_checks.append(StatusCheck(**json.loads(data)))
+            status_checks.append(StatusCheck(**from_json(data)))
     return status_checks
 
 # New Code Review endpoints
@@ -64,7 +77,7 @@ async def submit_code_for_review(submission: CodeSubmissionCreate):
         code_submission = CodeSubmission(**submission.dict())
         
         # Save to Redis with expiration (24 hours)
-        await redis_client.setex(f"submission:{code_submission.id}", 86400, json.dumps(code_submission.dict()))
+        await redis_client.setex(f"submission:{code_submission.id}", 86400, to_json(code_submission.dict()))
         
         return code_submission
     except Exception as e:
@@ -80,7 +93,7 @@ async def start_code_review(submission_id: str):
         if not submission_data:
             raise HTTPException(status_code=404, detail="Code submission not found")
         
-        submission = CodeSubmission(**json.loads(submission_data))
+        submission = CodeSubmission(**from_json(submission_data))
         
         if submission.status != ReviewStatus.PENDING:
             raise HTTPException(status_code=400, detail=f"Submission is not in pending status. Current status: {submission.status}")
@@ -119,7 +132,7 @@ async def get_review_status(session_id: str):
         if not session_data:
             raise HTTPException(status_code=404, detail="Review session not found")
         
-        session = ReviewSession(**json.loads(session_data))
+        session = ReviewSession(**from_json(session_data))
         return {
             "session_id": session.id,
             "status": session.status,
@@ -144,7 +157,7 @@ async def add_human_feedback(session_id: str, feedback: HumanFeedbackCreate):
         if not session_data:
             raise HTTPException(status_code=404, detail="Review session not found")
         
-        session = ReviewSession(**json.loads(session_data))
+        session = ReviewSession(**from_json(session_data))
         
         # Create human feedback
         human_feedback = HumanFeedback(
@@ -154,11 +167,11 @@ async def add_human_feedback(session_id: str, feedback: HumanFeedbackCreate):
         )
         
         # Save to Redis
-        await redis_client.setex(f"human_feedback:{human_feedback.id}", 86400, json.dumps(human_feedback.dict()))
+        await redis_client.setex(f"human_feedback:{human_feedback.id}", 86400, to_json(human_feedback.dict()))
         
         # Update session
         session.human_feedback_ids.append(human_feedback.id)
-        await redis_client.setex(f"session:{session_id}", 86400, json.dumps(session.dict()))
+        await redis_client.setex(f"session:{session_id}", 86400, to_json(session.dict()))
         
         return {"message": "Human feedback added successfully", "feedback_id": human_feedback.id}
     
@@ -179,7 +192,7 @@ async def get_all_submissions():
         for key in submission_keys:
             submission_data = await redis_client.get(key)
             if submission_data:
-                submission = CodeSubmission(**json.loads(submission_data))
+                submission = CodeSubmission(**from_json(submission_data))
                 
                 # Get associated session if exists
                 session_keys = await redis_client.keys(f"session:*")
@@ -187,7 +200,7 @@ async def get_all_submissions():
                 for session_key in session_keys:
                     session_data = await redis_client.get(session_key)
                     if session_data:
-                        session = ReviewSession(**json.loads(session_data))
+                        session = ReviewSession(**from_json(session_data))
                         if session.submission_id == submission.id:
                             session_id = session.id
                             break
@@ -215,7 +228,7 @@ async def get_llm_feedbacks(session_id: str):
         for key in feedback_keys:
             feedback_data = await redis_client.get(key)
             if feedback_data:
-                feedback = LLMFeedback(**json.loads(feedback_data))
+                feedback = LLMFeedback(**from_json(feedback_data))
                 if feedback.session_id == session_id:
                     feedbacks.append(feedback)
         

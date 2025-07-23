@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 from typing import Optional
 from models import (
     CodeSubmission, ReviewSession, LLMFeedback, ReviewResult, 
@@ -9,6 +10,18 @@ from llm_services import LLMService
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Custom JSON encoder to handle datetime objects
+def json_serializer(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+def to_json(data):
+    return json.dumps(data, default=json_serializer)
+
+def from_json(data):
+    return json.loads(data)
 
 class ReviewWorkflow:
     def __init__(self, redis_client):
@@ -29,8 +42,8 @@ class ReviewWorkflow:
         submission.status = ReviewStatus.IN_PROGRESS
         
         # Save initial session and update submission
-        await self.redis.setex(f"session:{session.id}", 86400, json.dumps(session.dict()))
-        await self.redis.setex(f"submission:{submission.id}", 86400, json.dumps(submission.dict()))
+        await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+        await self.redis.setex(f"submission:{submission.id}", 86400, to_json(submission.dict()))
         
         try:
             # Step 1: Get coder feedback
@@ -51,7 +64,7 @@ class ReviewWorkflow:
                 processing_time=processing_time
             )
             
-            await self.redis.setex(f"feedback:{coder_feedback.id}", 86400, json.dumps(coder_feedback.dict()))
+            await self.redis.setex(f"feedback:{coder_feedback.id}", 86400, to_json(coder_feedback.dict()))
             session.coder_feedback_id = coder_feedback.id
             
             # Step 2: Get critic feedbacks in parallel
@@ -78,7 +91,7 @@ class ReviewWorkflow:
                     feedback_text=critic1_response,
                     processing_time=critic1_time
                 )
-                await self.redis.setex(f"feedback:{critic1_feedback.id}", 86400, json.dumps(critic1_feedback.dict()))
+                await self.redis.setex(f"feedback:{critic1_feedback.id}", 86400, to_json(critic1_feedback.dict()))
                 session.critic1_feedback_id = critic1_feedback.id
             else:
                 logger.error(f"Critic 1 failed: {critic_results[0]}")
@@ -94,7 +107,7 @@ class ReviewWorkflow:
                     feedback_text=critic2_response,
                     processing_time=critic2_time
                 )
-                await self.redis.setex(f"feedback:{critic2_feedback.id}", 86400, json.dumps(critic2_feedback.dict()))
+                await self.redis.setex(f"feedback:{critic2_feedback.id}", 86400, to_json(critic2_feedback.dict()))
                 session.critic2_feedback_id = critic2_feedback.id
             else:
                 logger.error(f"Critic 2 failed: {critic_results[1]}")
@@ -123,11 +136,11 @@ class ReviewWorkflow:
             session.status = ReviewStatus.COMPLETED
             session.final_code = suggested_code
             
-            await self.redis.setex(f"session:{session.id}", 86400, json.dumps(session.dict()))
+            await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
             
             # Update submission
             submission.status = ReviewStatus.COMPLETED
-            await self.redis.setex(f"submission:{submission.id}", 86400, json.dumps(submission.dict()))
+            await self.redis.setex(f"submission:{submission.id}", 86400, to_json(submission.dict()))
             
             logger.info(f"Review completed for submission {submission.id}")
             return session
@@ -137,8 +150,8 @@ class ReviewWorkflow:
             # Update session and submission status to failed
             session.status = ReviewStatus.FAILED
             submission.status = ReviewStatus.FAILED
-            await self.redis.setex(f"session:{session.id}", 86400, json.dumps(session.dict()))
-            await self.redis.setex(f"submission:{submission.id}", 86400, json.dumps(submission.dict()))
+            await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
+            await self.redis.setex(f"submission:{submission.id}", 86400, to_json(submission.dict()))
             raise
     
     def _generate_final_recommendations(
@@ -185,27 +198,27 @@ class ReviewWorkflow:
             session_data = await self.redis.get(f"session:{session_id}")
             if not session_data:
                 return None
-            session = ReviewSession(**json.loads(session_data))
+            session = ReviewSession(**from_json(session_data))
             
             # Get submission
             submission_data = await self.redis.get(f"submission:{session.submission_id}")
             if not submission_data:
                 return None
-            submission = CodeSubmission(**json.loads(submission_data))
+            submission = CodeSubmission(**from_json(submission_data))
             
             # Get feedbacks
             coder_feedback = None
             if session.coder_feedback_id:
                 feedback_data = await self.redis.get(f"feedback:{session.coder_feedback_id}")
                 if feedback_data:
-                    coder_feedback = LLMFeedback(**json.loads(feedback_data))
+                    coder_feedback = LLMFeedback(**from_json(feedback_data))
             
             critic_feedbacks = []
             for critic_id in [session.critic1_feedback_id, session.critic2_feedback_id]:
                 if critic_id:
                     feedback_data = await self.redis.get(f"feedback:{critic_id}")
                     if feedback_data:
-                        critic_feedbacks.append(LLMFeedback(**json.loads(feedback_data)))
+                        critic_feedbacks.append(LLMFeedback(**from_json(feedback_data)))
             
             # Get human feedbacks
             human_feedbacks = []
@@ -213,7 +226,7 @@ class ReviewWorkflow:
                 for feedback_id in session.human_feedback_ids:
                     feedback_data = await self.redis.get(f"human_feedback:{feedback_id}")
                     if feedback_data:
-                        human_feedbacks.append(HumanFeedback(**json.loads(feedback_data)))
+                        human_feedbacks.append(HumanFeedback(**from_json(feedback_data)))
             
             # Generate final recommendations
             final_recommendations = self._generate_final_recommendations(
