@@ -1,4 +1,4 @@
-# MCRAG - Multi-LLM Code Review and Generation System
+# MCRAG - System Architecture
 
 ## System Overview
 
