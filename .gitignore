@@ -79,11 +79,12 @@ agenthub/agents/youtube/db
 # Mobile development
 android-sdk/
 
+# Environment variables and configuration files
 venv/
 env/
 .env
 frontend/.env
-dev.md
+drafts/
 backend/.env
 
 # Temporary/development files that should not be tracked
