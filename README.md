@@ -81,14 +81,12 @@ mcrag/
 ├── README.md
 ├── SYSTEM_ARCHITECTURE.md
 ├── backend/
-│   ├── .env
 │   ├── llm_services.py
 │   ├── models.py
 │   ├── requirements.txt
 │   ├── review_workflow.py
 │   └── server.py
 └── frontend/
-    ├── .env
     ├── craco.config.js
     ├── package-lock.json
     ├── package.json
