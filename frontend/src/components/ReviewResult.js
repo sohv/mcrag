@@ -133,33 +133,6 @@ const ReviewResult = ({ reviewData, onHumanFeedback }) => {
         )}
       </div>
 
-      {/* Code Evolution */}
-      {generated_codes && generated_codes.length > 1 && (
-        <div className="bg-white shadow-lg rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Code Evolution</h3>
-          <div className="space-y-4">
-            {generated_codes.map((code, index) => (
-              <div key={code.id} className="border rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-gray-900">Version {code.version}</h4>
-                  <span className="text-xs text-gray-500">
-                    {new Date(code.created_at).toLocaleString()}
-                  </span>
-                </div>
-                {code.explanation && (
-                  <p className="text-sm text-gray-600 mb-3">{code.explanation}</p>
-                )}
-                <div className="bg-gray-900 rounded p-3 overflow-x-auto">
-                  <pre className="text-green-400 text-xs">
-                    <code>{code.generated_code}</code>
-                  </pre>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Critic Reviews */}
       {critic_feedbacks && critic_feedbacks.length > 0 && (
         <div className="bg-white shadow-lg rounded-lg p-6">

@@ -353,12 +353,22 @@ class CodeGenerationWorkflow:
             
             # Get all generated codes for this session
             generated_codes = []
-            current_code_id = session.current_code_id
             
-            if current_code_id:
-                code_data = await self.redis.get(f"code:{current_code_id}")
-                if code_data:
-                    generated_codes.append(GeneratedCode(**from_json(code_data)))
+            # Scan Redis for all codes belonging to this session
+            cursor = 0
+            while True:
+                cursor, keys = await self.redis.scan(cursor, match="code:*", count=100)
+                for key in keys:
+                    code_data = await self.redis.get(key)
+                    if code_data:
+                        code = GeneratedCode(**from_json(code_data))
+                        if code.session_id == session_id:
+                            generated_codes.append(code)
+                if cursor == 0:
+                    break
+            
+            # Sort generated codes by version (iteration order)
+            generated_codes.sort(key=lambda x: x.version)
             
             # Get all critic reviews
             critic_reviews = []
