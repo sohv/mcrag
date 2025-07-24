@@ -1,6 +1,7 @@
 import os
 import time
 import asyncio
+import aiohttp
 from typing import Dict, List, Optional, Tuple
 import openai
 import google.generativeai as genai
@@ -237,16 +238,56 @@ Include:
                 
                 review_text = response.choices[0].message.content
                 
-            else:  # For DeepSeek or other models, use a simplified approach
-                # Since DeepSeek API might not be readily available, simulate a review
-                role = "critic2"
-                system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
-                
-                # Use Gemini as a fallback for the second critic
-                await self._wait_for_gemini_rate_limit()
-                model = genai.GenerativeModel('gemini-2.0-flash-exp')
-                
-                review_prompt = f"""
+            else:  # DeepSeek R1 API call
+                if model_name == "deepseek-r1" and self.deepseek_key:
+                    role = "critic2"
+                    system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
+                    
+                    review_prompt = f"""
+Review this {language} code that was generated for the following request:
+
+Original Request: {original_prompt}
+
+Generated Code:
+```{language}
+{code}
+```
+
+Focus on performance optimization and advanced techniques. Provide:
+1. Performance assessment
+2. Optimization opportunities  
+3. Advanced improvement suggestions
+4. Severity rating (1-5) for the most critical issue
+"""
+                    
+                    # Call DeepSeek R1 API
+                    api_url = "https://api.deepseek.com/chat/completions"
+                    headers = {
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.deepseek_key}",
+                    }
+                    
+                    data = {
+                        "model": "deepseek-reasoner",  # Use 'deepseek-reasoner' for R1 model
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": review_prompt}
+                        ],
+                        "stream": False
+                    }
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(api_url, headers=headers, json=data) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                review_text = result['choices'][0]['message']['content']
+                            else:
+                                logger.error(f"DeepSeek API request failed with status {response.status}")
+                                # Fallback to Gemini if DeepSeek fails
+                                await self._wait_for_gemini_rate_limit()
+                                model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                                
+                                fallback_prompt = f"""
 {system_prompt}
 
 Review this {language} code that was generated for the following request:
@@ -264,12 +305,44 @@ Focus on performance optimization and advanced techniques. Provide:
 3. Advanced improvement suggestions
 4. Severity rating (1-5) for the most critical issue
 """
-                
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None, model.generate_content, review_prompt
-                )
-                
-                review_text = response.text
+                                
+                                response = await asyncio.get_event_loop().run_in_executor(
+                                    None, model.generate_content, fallback_prompt
+                                )
+                                
+                                review_text = response.text
+                else:
+                    # Fallback to Gemini if no DeepSeek key or different model
+                    role = "critic2"
+                    system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
+                    
+                    await self._wait_for_gemini_rate_limit()
+                    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                    
+                    review_prompt = f"""
+{system_prompt}
+
+Review this {language} code that was generated for the following request:
+
+Original Request: {original_prompt}
+
+Generated Code:
+```{language}
+{code}
+```
+
+Focus on performance optimization and advanced techniques. Provide:
+1. Performance assessment
+2. Optimization opportunities  
+3. Advanced improvement suggestions
+4. Severity rating (1-5) for the most critical issue
+"""
+                    
+                    response = await asyncio.get_event_loop().run_in_executor(
+                        None, model.generate_content, review_prompt
+                    )
+                    
+                    review_text = response.text
             
             processing_time = time.time() - start_time
             
@@ -411,7 +484,37 @@ INCORPORATION PLAN:
             logger.error(f"OpenAI availability check failed: {str(e)}")
             results["gpt-4o"] = False
         
-        # For DeepSeek, we'll use Gemini as fallback, so mark as available if Gemini works
-        results["deepseek-r1"] = results["gemini-2.0-flash-exp"]
+        # Test DeepSeek R1 (Critic 2)
+        try:
+            if self.deepseek_key:
+                api_url = "https://api.deepseek.com/chat/completions"
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.deepseek_key}",
+                }
+                
+                data = {
+                    "model": "deepseek-reasoner",
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": "Hello"}
+                    ],
+                    "stream": False
+                }
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(api_url, headers=headers, json=data) as response:
+                        if response.status == 200:
+                            results["deepseek-r1"] = True
+                        else:
+                            logger.error(f"DeepSeek API test failed with status {response.status}")
+                            results["deepseek-r1"] = False
+            else:
+                logger.warning("No DeepSeek API key provided")
+                results["deepseek-r1"] = False
+        except Exception as e:
+            logger.error(f"DeepSeek availability check failed: {str(e)}")
+            # Fallback to Gemini availability if DeepSeek fails
+            results["deepseek-r1"] = results["gemini-2.0-flash-exp"]
         
         return results

@@ -18,6 +18,7 @@ mypy
 python-jose
 requests
 pandas
+aiohttp
 numpy
 python-multipart
 jq
