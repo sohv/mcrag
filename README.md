@@ -73,13 +73,48 @@ The system consists of three main components:
 - **DeepSeek API**: Alternative critic perspective
 - **Rate Limiting**: Intelligent API usage management
 
+## Project Structure
+
+```
+mcrag/
+├── .gitignore
+├── README.md
+├── SYSTEM_ARCHITECTURE.md
+├── backend/
+│   ├── .env
+│   ├── llm_services.py
+│   ├── models.py
+│   ├── requirements.txt
+│   ├── review_workflow.py
+│   └── server.py
+└── frontend/
+    ├── .env
+    ├── craco.config.js
+    ├── package-lock.json
+    ├── package.json
+    ├── postcss.config.js
+    ├── tailwind.config.js
+    ├── yarn.lock
+    ├── public/
+    │   └── index.html
+    └── src/
+        ├── App.css
+        ├── App.js
+        ├── index.css
+        ├── index.js
+        └── components/
+            ├── CodeSubmission.js
+            ├── ReviewProgress.js
+            └── ReviewResult.js
+```
+
 ## Installation and Setup
 
 ### Prerequisites
 - Python 3.8+ with pip
 - Node.js 16+ with npm
 - Redis server
-- API keys for OpenAI, Google AI, and DeepSeek
+- API keys for OpenAI, Gemini AI, and DeepSeek
 
 ### Backend Setup
 
