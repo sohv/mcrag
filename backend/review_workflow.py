@@ -77,11 +77,11 @@ class CodeGenerationWorkflow:
             session.current_code_id = generated_code.id
             
             # Step 2: Get critic reviews in parallel
+            # Batch write after both reviews
             session.status = GenerationStatus.REVIEWING
-            request.status = GenerationStatus.REVIEWING  # Update request status too
+            request.status = GenerationStatus.REVIEWING 
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
             await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
-            
             critic1_review, critic2_review = await asyncio.gather(
                 self._get_critic_review(generated_code, FeedbackType.CRITIC1),
                 self._get_critic_review(generated_code, FeedbackType.CRITIC2)

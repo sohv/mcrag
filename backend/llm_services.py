@@ -15,17 +15,14 @@ class LLMService:
         self.openai_key = os.environ.get('OPENAI_API_KEY')
         self.gemini_key = os.environ.get('GEMINI_API_KEY')
         self.deepseek_key = os.environ.get('DEEPSEEK_API_KEY')
-        
         # Rate limiting for Gemini (10 requests per minute on free tier)
         self.gemini_last_request_time = 0
         self.gemini_min_interval = 6  # 6 seconds between requests (10 per minute)
-        
         # Configure APIs
         if self.gemini_key:
             genai.configure(api_key=self.gemini_key)
-        
+
     def _get_system_prompt(self, role: str, language: ProgrammingLanguage) -> str:
-        """Generate system prompts based on role and programming language."""
         base_context = f"You are an expert {language.value} developer working on a code generation and review system."
         
         if role == "generator":
@@ -92,7 +89,6 @@ Response format:
         return ""
 
     async def _wait_for_gemini_rate_limit(self):
-        """Ensure we don't exceed Gemini rate limits."""
         current_time = time.time()
         time_since_last_request = current_time - self.gemini_last_request_time
         
@@ -104,7 +100,6 @@ Response format:
         self.gemini_last_request_time = time.time()
 
     async def _handle_rate_limit_error(self, error_str: str) -> bool:
-        """Handle rate limit errors with exponential backoff."""
         if "429" in error_str and "quota" in error_str.lower():
             # Extract retry delay if provided
             import re
@@ -122,7 +117,6 @@ Response format:
         return False
 
     async def get_generator_response(self, prompt: str, language: str) -> Tuple[str, str, float]:
-        """Get response from the generator (Gemini 2.0 Flash)."""
         start_time = time.time()
         
         try:
@@ -199,7 +193,6 @@ Response format:
             return f"# Error generating code: {str(e)}", "Generation failed", processing_time
 
     async def get_critic_review(self, code: str, original_prompt: str, language: str, model_name: str) -> Tuple[str, List[str], int, float, float]:
-        """Get review from a critic."""
         start_time = time.time()
         
         try:
@@ -242,7 +235,6 @@ Include:
                 if model_name == "deepseek-r1" and self.deepseek_key:
                     role = "critic2"
                     system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
-                    
                     review_prompt = f"""
 Review this {language} code that was generated for the following request:
 
@@ -259,14 +251,12 @@ Focus on performance optimization and advanced techniques. Provide:
 3. Advanced improvement suggestions
 4. Severity rating (1-5) for the most critical issue
 """
-                    
                     # Call DeepSeek R1 API
                     api_url = "https://api.deepseek.com/chat/completions"
                     headers = {
                         "Content-Type": "application/json",
                         "Authorization": f"Bearer {self.deepseek_key}",
                     }
-                    
                     data = {
                         "model": "deepseek-reasoner",  # Use 'deepseek-reasoner' for R1 model
                         "messages": [
@@ -275,7 +265,6 @@ Focus on performance optimization and advanced techniques. Provide:
                         ],
                         "stream": False
                     }
-                    
                     async with aiohttp.ClientSession() as session:
                         async with session.post(api_url, headers=headers, json=data) as response:
                             if response.status == 200:
@@ -286,7 +275,6 @@ Focus on performance optimization and advanced techniques. Provide:
                                 # Fallback to Gemini if DeepSeek fails
                                 await self._wait_for_gemini_rate_limit()
                                 model = genai.GenerativeModel('gemini-2.5-flash')
-                                
                                 fallback_prompt = f"""
 {system_prompt}
 
@@ -305,20 +293,16 @@ Focus on performance optimization and advanced techniques. Provide:
 3. Advanced improvement suggestions
 4. Severity rating (1-5) for the most critical issue
 """
-                                
                                 response = await asyncio.get_event_loop().run_in_executor(
                                     None, model.generate_content, fallback_prompt
                                 )
-                                
                                 review_text = response.text
                 else:
                     # Fallback to Gemini if no DeepSeek key or different model
                     role = "critic2"
                     system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
-                    
                     await self._wait_for_gemini_rate_limit()
                     model = genai.GenerativeModel('gemini-2.5-flash')
-                    
                     review_prompt = f"""
 {system_prompt}
 
@@ -337,11 +321,9 @@ Focus on performance optimization and advanced techniques. Provide:
 3. Advanced improvement suggestions
 4. Severity rating (1-5) for the most critical issue
 """
-                    
                     response = await asyncio.get_event_loop().run_in_executor(
                         None, model.generate_content, review_prompt
                     )
-                    
                     review_text = response.text
             
             processing_time = time.time() - start_time
@@ -377,7 +359,6 @@ Focus on performance optimization and advanced techniques. Provide:
                                   critic1_review: str, critic1_suggestions: List[str],
                                   critic2_review: str, critic2_suggestions: List[str],
                                   language: str) -> Tuple[str, float, float, str]:
-        """Generator ranks critic reviews and creates incorporation plan."""
         start_time = time.time()
         
         try:
@@ -456,7 +437,6 @@ INCORPORATION PLAN:
             return f"Error during ranking: {str(e)}", 0.1, 0.1, "Unable to create incorporation plan - stopping refinement"
 
     async def check_llm_availability(self) -> Dict[str, bool]:
-        """Check availability of all LLM services."""
         results = {}
         
         # Test Gemini (Generator)
