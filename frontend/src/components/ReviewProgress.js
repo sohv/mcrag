@@ -52,7 +52,7 @@ const ReviewProgress = ({ status, reviewDetails }) => {
         icon: <CpuChipIcon className="h-4 w-4" />,
         completed: reviewDetails.status !== 'pending',
         inProgress: reviewDetails.status === 'generating',
-        llm: 'Gemini 2.0 Flash'
+        llm: 'Gemini 2.5 Flash'
       }
     ];
 
@@ -83,7 +83,7 @@ const ReviewProgress = ({ status, reviewDetails }) => {
         icon: <CogIcon className="h-4 w-4" />,
         completed: reviewDetails.status === 'completed',
         inProgress: reviewDetails.status === 'refining',
-        llm: 'Gemini 2.0 Flash'
+        llm: 'Gemini 2.5 Flash'
       });
     }
 

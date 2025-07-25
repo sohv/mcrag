@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Overview: Multi Code Review and Generation (MCRAG)</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center">
+  <div class="max-w-2xl bg-white shadow-lg rounded-lg p-8 m-4">
+    <h1 class="text-3xl font-bold text-gray-900 mb-4">Project Overview: Multi Code Review and Generation (MCRAG)</h1>
+    <ul class="text-gray-800 list-disc list-inside space-y-3 mb-6">
+      <li><span class="font-semibold">GAN-Inspired Design:</span> The system is conceptually inspired by Generative Adversarial Networks (GANs), featuring a collaborative dynamic between a generator and critics.</li>
+      <li><span class="font-semibold">Two-Part System:</span>
+        <ul class="list-disc list-inside ml-6">
+          <li><span class="underline">Generator:</span> Produces code based on user prompts.</li>
+          <li><span class="underline">Critics:</span> Review the generated code, providing detailed feedback and suggestions for improvement.</li>
+        </ul>
+      </li>
+      <li><span class="font-semibold">Iterative Refinement:</span> The generator incorporates critic feedback to refine its code. This process is repeated for three iterations:<br/>
+        <span class="italic">Generate → Review → Refine</span><br/>
+        This loop helps minimize errors and bugs in the final code.
+      </li>
+      <li><span class="font-semibold">Multi-Critic Setup:</span> For higher code quality, the system uses one generator and two critics:
+        <ul class="list-disc list-inside ml-6">
+          <li><span class="underline">Generator:</span> Gemini 2.5-Flash</li>
+          <li><span class="underline">Critic 1:</span> GPT-4o Mini</li>
+          <li><span class="underline">Critic 2:</span> DeepSeek R1</li>
+        </ul>
+      </li>
+      <li><span class="font-semibold">Feedback Ranking:</span> After each review, the generator evaluates and ranks the feedback from both critics, prioritizing the most valuable suggestions for incorporation. This ensures that the most impactful improvements are made in each refinement cycle.</li>
+      <li><span class="font-semibold">Outcome:</span> After three cycles, the system outputs code that has undergone multiple rounds of expert review and refinement, resulting in robust, high-quality code with minimal chances of errors or bugs.</li>
+    </ul>
+    <h2 class="text-2xl font-bold text-gray-900 mb-2 mt-8">Example Workflow</h2>
+    <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 rounded">
+      <p class="mb-2"><span class="font-semibold">Suppose a user submits the following prompt:</span></p>
+      <pre class="bg-white border border-gray-200 rounded p-3 text-sm text-gray-800 mb-4">"Write a Python function that checks if a number is prime."</pre>
+      <ol class="list-decimal list-inside space-y-2 text-gray-800">
+        <li><span class="font-semibold">Generation:</span> The <span class="underline">generator</span> (Gemini 2.5-Flash) creates an initial Python function for primality checking.</li>
+        <li><span class="font-semibold">Review:</span> Two <span class="underline">critics</span> (GPT-4o Mini and DeepSeek R1) independently review the code. For example:
+          <ul class="list-disc list-inside ml-6">
+            <li>Critic 1 points out that the function does not handle numbers less than 2 and could be optimized for even numbers.</li>
+            <li>Critic 2 suggests using the <code>math.isqrt</code> function for efficiency and recommends adding type hints.</li>
+          </ul>
+        </li>
+        <li><span class="font-semibold">Ranking & Refinement:</span> The generator ranks the feedback, prioritizes the most valuable suggestions (e.g., input validation and efficiency improvements), and refines the code accordingly.</li>
+        <li><span class="font-semibold">Iteration:</span> Steps 2 and 3 are repeated for a total of three cycles. With each iteration, the code becomes more robust, readable, and efficient, as new issues are caught and improvements are incorporated.</li>
+        <li><span class="font-semibold">Final Output:</span> After three iterations, the user receives a well-tested, high-quality Python function with minimal chances of errors or bugs.</li>
+      </ol>
+      <p class="mt-4 text-gray-700"><span class="font-semibold">This workflow ensures that the generated code is not only functional but also reviewed and refined by multiple expert perspectives, closely mirroring the adversarial and collaborative spirit of GANs.</span></p>
+    </div>
+    <a href="/" class="text-blue-600 hover:underline">&larr; Back to Home</a>
+  </div>
+</body>
+</html> 
