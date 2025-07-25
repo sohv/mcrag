@@ -9,7 +9,7 @@ The system consists of three main components:
 ### Backend (FastAPI + Redis)
 - **FastAPI Server**: RESTful API endpoints for code generation requests
 - **Redis Database**: Session storage and data persistence
-- **Multi-LLM Integration**: Gemini 2.0 Flash (generator), GPT-4o (critic1), DeepSeek R1 (critic2)
+- **Multi-LLM Integration**: Gemini 2.5 Flash (generator), GPT-4o (critic1), DeepSeek R1 (critic2)
 - **Background Processing**: Asynchronous workflow execution
 - **Rate Limiting**: Built-in API rate limiting with exponential backoff
 
@@ -34,7 +34,7 @@ The system consists of three main components:
 - No verbose multi-line comments or documentation blocks
 
 ### Multi-LLM Review System
-- **Generator (Gemini 2.0 Flash)**: Creates and refines code based on prompts
+- **Generator (Gemini 2.5 Flash)**: Creates and refines code based on prompts
 - **Critic 1 (GPT-4o)**: Provides detailed code analysis and suggestions
 - **Critic 2 (DeepSeek R1)**: Offers alternative perspective and improvements
 - **Fallback Support**: Gemini fallback for DeepSeek R1 when unavailable
@@ -69,7 +69,7 @@ The system consists of three main components:
 
 ### AI/ML Integration
 - **OpenAI API**: GPT-4o for critic reviews
-- **Google Generative AI**: Gemini 2.0 Flash for code generation
+- **Google Generative AI**: Gemini 2.5 Flash for code generation
 - **DeepSeek API**: Alternative critic perspective
 - **Rate Limiting**: Intelligent API usage management
 

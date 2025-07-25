@@ -251,7 +251,7 @@ async def check_llm_status():
         availability = await llm_service.check_llm_availability()
         
         return {
-            "generator": {"model": "gemini-2.0-flash-exp", "available": availability.get("gemini-2.0-flash-exp", False)},
+            "generator": {"model": "gemini-2.5-flash", "available": availability.get("gemini-2.5-flash", False)},
             "critic1": {"model": "gpt-4o", "available": availability.get("gpt-4o", False)},
             "critic2": {"model": "deepseek-r1", "available": availability.get("deepseek-r1", False)},
             "overall_health": all(availability.values())
@@ -259,7 +259,7 @@ async def check_llm_status():
     except Exception as e:
         logger.error(f"Error checking LLM status: {str(e)}")
         return {
-            "generator": {"model": "gemini-2.0-flash-exp", "available": False},
+            "generator": {"model": "gemini-2.5-flash", "available": False},
             "critic1": {"model": "gpt-4o", "available": False},
             "critic2": {"model": "deepseek-r1", "available": False},
             "overall_health": False,

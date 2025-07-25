@@ -129,7 +129,7 @@ Response format:
             # Rate limiting for Gemini
             await self._wait_for_gemini_rate_limit()
             
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
             
             full_prompt = f"{system_prompt}\n\n{prompt}"
@@ -285,7 +285,7 @@ Focus on performance optimization and advanced techniques. Provide:
                                 logger.error(f"DeepSeek API request failed with status {response.status}")
                                 # Fallback to Gemini if DeepSeek fails
                                 await self._wait_for_gemini_rate_limit()
-                                model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                                model = genai.GenerativeModel('gemini-2.5-flash')
                                 
                                 fallback_prompt = f"""
 {system_prompt}
@@ -317,7 +317,7 @@ Focus on performance optimization and advanced techniques. Provide:
                     system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
                     
                     await self._wait_for_gemini_rate_limit()
-                    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     
                     review_prompt = f"""
 {system_prompt}
@@ -382,7 +382,7 @@ Focus on performance optimization and advanced techniques. Provide:
         
         try:
             await self._wait_for_gemini_rate_limit()
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
             
             ranking_prompt = f"""
@@ -462,14 +462,14 @@ INCORPORATION PLAN:
         # Test Gemini (Generator)
         try:
             await self._wait_for_gemini_rate_limit()
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             await asyncio.get_event_loop().run_in_executor(
                 None, model.generate_content, "Hello"
             )
-            results["gemini-2.0-flash-exp"] = True
+            results["gemini-2.5-flash"] = True
         except Exception as e:
             logger.error(f"Gemini availability check failed: {str(e)}")
-            results["gemini-2.0-flash-exp"] = False
+            results["gemini-2.5-flash"] = False
         
         # Test OpenAI (Critic 1)
         try:
@@ -515,6 +515,6 @@ INCORPORATION PLAN:
         except Exception as e:
             logger.error(f"DeepSeek availability check failed: {str(e)}")
             # Fallback to Gemini availability if DeepSeek fails
-            results["deepseek-r1"] = results["gemini-2.0-flash-exp"]
+            results["deepseek-r1"] = results["gemini-2.5-flash"]
         
         return results
