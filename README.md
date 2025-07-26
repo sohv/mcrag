@@ -195,7 +195,7 @@ npm start
 
 ## Demo
 
-[![Demo Video](https://img.shields.io/badge/▶️-Watch%20Demo-blue?style=for-the-badge)](https://github.com/sohan/mcrag/raw/main/mcrag.mp4)
+[![Demo Video](https://img.shields.io/badge/▶️-Watch%20Demo-blue?style=for-the-badge)](https://github.com/sohv/mcrag/raw/main/mcrag.mp4)
 
 ## Data Models
 
