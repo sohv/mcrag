@@ -90,14 +90,9 @@ const CodeGenerationApp = () => {
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
             Multi Code Review and Generation (MCRAG)
           </h1>
-          <ul className="text-left max-w-2xl mx-auto mb-4 text-gray-700 list-disc list-inside space-y-1">
-            <li><span className="font-semibold">GAN-Inspired Design:</span> The system is conceptually inspired by Generative Adversarial Networks (GANs), featuring a collaborative dynamic between a generator and critics.</li>
-            <li><span className="font-semibold">Two-Part System:</span> <span className="underline">Generator</span> produces code based on user prompts. <span className="underline">Critics</span> review the generated code, providing detailed feedback and suggestions for improvement.</li>
-            <li><span className="font-semibold">Iterative Refinement:</span> The generator incorporates critic feedback to refine its code. This process is repeated for three iterations: <span className="italic">Generate → Review → Refine</span>. This loop helps minimize errors and bugs in the final code.</li>
-            <li><span className="font-semibold">Multi-Critic Setup:</span> For higher code quality, the system uses one generator and two critics: <span className="underline">Generator</span>: Gemini 2.5-Flash, <span className="underline">Critic 1</span>: GPT-4o Mini, <span className="underline">Critic 2</span>: DeepSeek R1.</li>
-            <li><span className="font-semibold">Feedback Ranking:</span> After each review, the generator evaluates and ranks the feedback from both critics, prioritizing the most valuable suggestions for incorporation. This ensures that the most impactful improvements are made in each refinement cycle.</li>
-            <li><span className="font-semibold">Outcome:</span> After three cycles, the system outputs code that has undergone multiple rounds of expert review and refinement, resulting in robust, high-quality code with minimal chances of errors or bugs.</li>
-          </ul>
+          <p className="max-w-2xl mx-auto mb-4 text-gray-700">
+            An AI-powered tool that generates code from your prompts and refines it through multiple rounds of LLM review. The system uses a generator and two critics to ensure your code is robust, high-quality, and well-reviewed.
+          </p>
           <div className="text-center mb-4">
             <a
               href="/project-details.html"
