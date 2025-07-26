@@ -193,10 +193,6 @@ npm start
 - Final code version marked as result
 - All iterations and reviews available for analysis
 
-## Demo
-
-[![Demo Video](https://img.shields.io/badge/▶️-Watch%20Demo-blue?style=for-the-badge)](https://github.com/sohv/mcrag/raw/main/mcrag.mp4)
-
 ## Data Models
 
 ### CodeGenerationRequest
