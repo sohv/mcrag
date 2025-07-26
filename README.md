@@ -194,14 +194,7 @@ npm start
 - All iterations and reviews available for analysis
 
 ## Demo
-
-<div align="left">
-  <video width="640" controls>
-    <source src="/media/mcrag.mp4" type="video/mp4">
-    MCRAG Demo Video
-  </video>
-</div>
-
+[ResumeRoast demo](/media/mcrag.mp4)
 
 ## Data Models
 
