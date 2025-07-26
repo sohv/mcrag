@@ -194,7 +194,11 @@ npm start
 - All iterations and reviews available for analysis
 
 ## Demo
-[ResumeRoast demo](/media/mcrag.mp4)
+
+<video width="800" controls>
+  <source src="mcrag.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 ## Data Models
 
