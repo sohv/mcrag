@@ -343,7 +343,9 @@ Focus on performance optimization and advanced techniques. Provide:
                 import re
                 severity_match = re.search(r'severity[^\d]*(\d)', review_text.lower())
                 if severity_match:
-                    severity = int(severity_match.group(1))
+                    parsed_severity = int(severity_match.group(1))
+                    # Ensure severity is within valid range (1-5)
+                    severity = max(1, min(5, parsed_severity))
             
             # Confidence score based on response length and specificity
             confidence = min(0.9, len(review_text) / 1000 + 0.3)
