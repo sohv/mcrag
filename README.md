@@ -193,6 +193,16 @@ npm start
 - Final code version marked as result
 - All iterations and reviews available for analysis
 
+## Demo
+
+<div align="left">
+  <video width="640" controls>
+    <source src="/media/mcrag.mp4" type="video/mp4">
+    MCRAG Demo Video
+  </video>
+</div>
+
+
 ## Data Models
 
 ### CodeGenerationRequest
@@ -255,20 +265,6 @@ The system implements intelligent rate limiting for free tier APIs:
 - Gemini API: 6-second intervals (10 requests/minute limit)
 - Exponential backoff for rate limit errors
 - Automatic retry mechanisms with proper delays
-
-## Error Handling
-
-### Backend Error Management
-- Comprehensive exception handling in all workflow steps
-- Graceful degradation when LLM services fail
-- Detailed error logging with context preservation
-- Automatic session cleanup on failures
-
-### Frontend Error Handling
-- User-friendly error messages for all failure scenarios
-- Network error recovery with retry mechanisms
-- Loading states and progress indicators
-- Fallback UI states for service unavailability
 
 ## Development Guidelines
 
