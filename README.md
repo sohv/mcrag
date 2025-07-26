@@ -195,10 +195,7 @@ npm start
 
 ## Demo
 
-<video width="800" controls>
-  <source src="mcrag.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+[![Demo Video](https://img.shields.io/badge/▶️-Watch%20Demo-blue?style=for-the-badge)](https://github.com/sohan/mcrag/raw/main/mcrag.mp4)
 
 ## Data Models
 
