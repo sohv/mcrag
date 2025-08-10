@@ -75,7 +75,7 @@ async def health_check():
 # Main endpoint: Generate code from prompt
 @api_router.post("/generate-code", response_model=CodeGenerationRequest)
 async def generate_code(request: CodeGenerationCreate, background_tasks: BackgroundTasks):
-    """Generate code based on user prompt with automatic critic review and refinement."""
+    # Function documentation.
     try:
         # Create generation request
         generation_request = CodeGenerationRequest(**request.dict())
@@ -94,7 +94,7 @@ async def generate_code(request: CodeGenerationCreate, background_tasks: Backgro
         raise HTTPException(status_code=500, detail=str(e))
 
 async def start_generation_workflow(request: CodeGenerationRequest):
-    """Background task to start the generation workflow."""
+    # Function documentation.
     try:
         # Check if request is still pending
         request_data = await redis_client.get(f"request:{request.id}")
@@ -120,7 +120,7 @@ async def start_generation_workflow(request: CodeGenerationRequest):
 # Get generation result
 @api_router.get("/generation-result/{session_id}", response_model=GenerationResult)
 async def get_generation_result(session_id: str):
-    """Get the complete generation result including all iterations and reviews."""
+    # Function documentation.
     try:
         result = await generation_workflow.get_generation_result(session_id)
         if not result:
@@ -137,7 +137,7 @@ async def get_generation_result(session_id: str):
 # Get generation status
 @api_router.get("/generation-status/{request_id}")
 async def get_generation_status(request_id: str):
-    """Get the current status of a generation request."""
+    # Function documentation.
     try:
         # Get request
         request_data = await redis_client.get(f"request:{request_id}")
@@ -171,7 +171,7 @@ async def get_generation_status(request_id: str):
 # Get final generated code
 @api_router.get("/final-code/{session_id}")
 async def get_final_code(session_id: str):
-    """Get just the final generated code."""
+    # Function documentation.
     try:
         result = await generation_workflow.get_generation_result(session_id)
         if not result:
@@ -197,7 +197,7 @@ async def get_final_code(session_id: str):
 # List all generations (for debugging/monitoring)
 @api_router.get("/list-generations")
 async def list_generations():
-    """List all generation requests (for debugging)."""
+    # Function documentation.
     try:
         keys = []
         async for key in redis_client.scan_iter(match="request:*"):
@@ -228,14 +228,14 @@ async def list_generations():
 # Legacy status endpoints for compatibility
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status(status: StatusCheckCreate):
-    """Create a status check entry."""
+    # Function documentation.
     status_check = StatusCheck(**status.dict())
     await redis_client.setex(f"status:{status_check.id}", 86400, to_json(status_check.dict()))
     return status_check
 
 @api_router.get("/status/{status_id}", response_model=StatusCheck)
 async def get_status(status_id: str):
-    """Get a status check entry."""
+    # Function documentation.
     status_data = await redis_client.get(f"status:{status_id}")
     if not status_data:
         raise HTTPException(status_code=404, detail="Status not found")
@@ -244,7 +244,7 @@ async def get_status(status_id: str):
 # LLM availability check
 @api_router.get("/llm-status")
 async def check_llm_status():
-    """Check the availability of all LLM services."""
+    # Function documentation.
     try:
         from llm_services import LLMService
         llm_service = LLMService()

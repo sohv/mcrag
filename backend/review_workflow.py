@@ -29,7 +29,7 @@ class CodeGenerationWorkflow:
         self.llm_service = LLMService()
         
     async def start_generation(self, request: CodeGenerationRequest) -> CodeGenerationSession:
-        """Start the complete code generation and review workflow."""
+        # Function documentation.
         logger.info(f"Starting code generation for request {request.id}")
         
         # Create generation session
@@ -61,7 +61,7 @@ class CodeGenerationWorkflow:
         return session
 
     async def _run_generation_cycle(self, session: CodeGenerationSession, request: CodeGenerationRequest):
-        """Run the iterative generation, review, and refinement cycle."""
+        # Function documentation.
         
         while session.refinement_iterations < session.max_iterations:
             logger.info(f"Starting iteration {session.refinement_iterations + 1}")
@@ -123,7 +123,7 @@ class CodeGenerationWorkflow:
             await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
     
     async def _generate_initial_code(self, session: CodeGenerationSession, request: CodeGenerationRequest) -> GeneratedCode:
-        """Generate initial code based on user prompt."""
+        # Function documentation.
         logger.info("Generating initial code...")
         
         prompt = f"""
@@ -167,7 +167,7 @@ class CodeGenerationWorkflow:
         return generated_code
 
     async def _refine_code(self, session: CodeGenerationSession, request: CodeGenerationRequest) -> GeneratedCode:
-        """Refine code based on previous critic feedback."""
+        # Function documentation.
         logger.info("Refining code based on critic feedback...")
         
         # Get current code and latest ranking
@@ -236,7 +236,7 @@ class CodeGenerationWorkflow:
         return refined_code
 
     async def _get_critic_review(self, generated_code: GeneratedCode, critic_type: FeedbackType) -> CriticReview:
-        """Get review from a specific critic."""
+        # Function documentation.
         logger.info(f"Getting {critic_type.value} review...")
         
         # Get the original request for context
@@ -272,7 +272,7 @@ class CodeGenerationWorkflow:
     async def _rank_and_plan_refinement(self, generated_code: GeneratedCode, 
                                       critic1_review: CriticReview, 
                                       critic2_review: CriticReview) -> ReviewRanking:
-        """Generator ranks the critic reviews and plans refinement."""
+        # Function documentation.
         logger.info("Ranking critic reviews and planning refinement...")
         
         # Get the original request for context
@@ -310,7 +310,7 @@ class CodeGenerationWorkflow:
         return ranking
 
     def _should_stop_refinement(self, ranking: ReviewRanking, session: CodeGenerationSession) -> bool:
-        """Decide if refinement should stop based on ranking and iteration count."""
+        # Function documentation.
         
         logger.info(f"Refinement decision - Iteration: {session.refinement_iterations + 1}/{session.max_iterations}, "
                    f"Critic scores: C1={ranking.critic1_score:.2f}, C2={ranking.critic2_score:.2f}")
@@ -335,7 +335,7 @@ class CodeGenerationWorkflow:
         return False
 
     async def get_generation_result(self, session_id: str) -> Optional[GenerationResult]:
-        """Get the complete generation result."""
+        # Function documentation.
         try:
             # Get session
             session_data = await self.redis.get(f"session:{session_id}")
@@ -410,7 +410,7 @@ class CodeGenerationWorkflow:
 
     def _create_summary(self, session: CodeGenerationSession, 
                        generated_codes: list, critic_reviews: list) -> str:
-        """Create a summary of the generation process."""
+        # Function documentation.
         summary = f"Generation completed in {session.refinement_iterations + 1} iterations.\n"
         
         if generated_codes:
