@@ -1,18 +1,12 @@
-#!/usr/bin/env python3
-"""
-Quick test script to verify DeepSeek R1 integration
-"""
 import asyncio
 import sys
 import os
 from pathlib import Path
 
-# Add backend to path
 sys.path.append('backend')
 
-# Load environment variables from backend/.env
-def load_env_file():
-    """Load environment variables from backend/.env file"""
+def load_env():
+    # Load environment variables from backend/.env file
     env_file = Path('backend/.env')
     if env_file.exists():
         with open(env_file, 'r') as f:
@@ -25,12 +19,11 @@ def load_env_file():
                     os.environ[key] = value
 
 # Load .env before importing LLM service
-load_env_file()
+load_env()
 
 from llm_services import LLMService
 
 async def test_deepseek_integration():
-    """Test DeepSeek R1 API integration"""
     print("Testing DeepSeek R1 Integration")
     print("=" * 40)
     
@@ -56,7 +49,6 @@ async def test_deepseek_integration():
         print("[FAIL] DeepSeek R1 API is not available")
         return False
     
-    # Test actual review functionality
     print("\nTesting code review functionality...")
     
     test_code = """
