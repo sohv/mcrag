@@ -2,6 +2,8 @@
 
 MCRAG is an intelligent code generation system that uses multiple Large Language Models to generate, review, and iteratively refine code based on user prompts. The system employs a collaborative AI approach where one LLM generates code while two critic LLMs provide feedback for continuous improvement.
 
+👉 Click [here](https://www.youtube.com/watch?v=yCULGu7LPDE) for the project demo !
+
 ## Architecture Overview
 
 The system consists of three main components:
