@@ -44,10 +44,10 @@ The system consists of three main components:
 - **CRACO**: Create React App Configuration Override
 
 ### AI/ML Integration
-- **OpenAI API**: GPT-4o for critic reviews
-- **Google Generative AI**: Gemini 2.5 Flash for code generation
-- **DeepSeek API**: Alternative critic perspective
+- **OpenRouter API**: Unified access to multiple LLM providers
+- **Multi-Model Support**: Gemini 2.0 Flash, GPT-4o, DeepSeek R1
 - **Rate Limiting**: Intelligent API usage management
+- **Model Flexibility**: Easy model switching and configuration
 
 ## Project Structure
 
@@ -96,7 +96,7 @@ mcrag/
 - Python 3.8+ with pip or uv
 - Node.js 16+ with npm
 - Redis server
-- API keys for OpenAI, Gemini AI, and DeepSeek
+- OpenRouter API key (provides access to multiple LLM providers)
 
 ### Quick Start (Recommended)
 
@@ -143,16 +143,14 @@ This project uses a centralized `.env` file in the root directory. Both backend 
 - `MONGO_URL=mongodb://localhost:27017` - MongoDB connection (if used)
 - `DB_NAME=test_database` - Database name
 
-**LLM API Keys:**
-- `OPENAI_API_KEY` - OpenAI API key for GPT-4o
-- `GEMINI_API_KEY` - Google Gemini API key for code generation
-- `DEEPSEEK_API_KEY` - DeepSeek API key for criticism
-- `OPENROUTER_API_KEY` - OpenRouter API key (optional, for multi-LLM support)
+**LLM Configuration (OpenRouter):**
+- `OPENROUTER_API_KEY` - OpenRouter API key for unified LLM access
+- `OPENROUTER_URL` - OpenRouter API endpoint (default: https://openrouter.ai/api/v1)
 
-**Model Configuration:**
-- `MODEL_GENERATOR=gemini-2.5-flash` - Default generator model
-- `MODEL_CRITIC1=gpt-4o` - First critic model
-- `MODEL_CRITIC2=deepseek-r1` - Second critic model
+**Model Configuration (OpenRouter model names):**
+- `MODEL_GENERATOR=google/gemini-2.5-flash` - Code generator model
+- `MODEL_CRITIC1=openai/gpt-4o` - First critic model  
+- `MODEL_CRITIC2=deepseek/deepseek-r1` - Second critic model
 
 #### Alternative Startup Methods
 
@@ -364,9 +362,7 @@ Completeness    0.876 (±0.074)
 All configuration is managed through the centralized `.env` file in the project root. Copy `.env.example` to `.env` and configure the following:
 
 #### Required API Keys
-- `OPENAI_API_KEY`: OpenAI API access for GPT-4o
-- `GEMINI_API_KEY`: Google AI API for Gemini models  
-- `DEEPSEEK_API_KEY`: DeepSeek API access
+- `OPENROUTER_API_KEY`: OpenRouter API for unified LLM access
 
 #### Server Configuration
 - `BACKEND_HOST`: Backend server host (default: 127.0.0.1)
@@ -380,21 +376,21 @@ All configuration is managed through the centralized `.env` file in the project 
 - `DB_NAME`: Database name (optional)
 
 #### Model Configuration
-- `MODEL_GENERATOR`: Generator model (default: gemini-2.5-flash)
-- `MODEL_CRITIC1`: First critic model (default: gpt-4o)
-- `MODEL_CRITIC2`: Second critic model (default: deepseek-r1)
+- `MODEL_GENERATOR`: Generator model (default: google/gemini-2.5-flash)
+- `MODEL_CRITIC1`: First critic model (default: openai/gpt-4o)
+- `MODEL_CRITIC2`: Second critic model (default: deepseek/deepseek-r1)
 
 #### Optional Configuration
-- `OPENROUTER_API_KEY`: OpenRouter API for multi-LLM support
+- `OPENROUTER_URL`: OpenRouter API endpoint (default: https://openrouter.ai/api/v1)
 - `MAX_ITERATIONS`: Maximum refinement cycles (default: 3)
 - `DEBUG`: Enable debug mode (default: true)
 - `LOG_LEVEL`: Logging level (default: INFO)
 
 ### Rate Limiting
-The system implements intelligent rate limiting for free tier APIs:
-- Gemini API: 6-second intervals (10 requests/minute limit)
-- Exponential backoff for rate limit errors
+The system implements intelligent rate limiting for OpenRouter API:
+- Configurable rate limiting per model provider
 - Automatic retry mechanisms with proper delays
+- Unified rate limiting across all models
 
 ### Environment Variable Priority
 1. System environment variables
