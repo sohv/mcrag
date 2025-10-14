@@ -1,29 +1,45 @@
 set -e  # Exit on any error
 
+echo "Starting MCRAG Development Environment..."
+
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+    echo "Virtual environment not found. Setting up..."
+    ./setup-venv.sh
+fi
+
+# Activate virtual environment
+echo "Activating virtual environment..."
+source venv/bin/activate
+
+# Ensure all dependencies are up to date using UV
+echo "Updating dependencies from requirements.txt with UV..."
+if command -v uv &> /dev/null; then
+    uv pip install -q -r requirements.txt
+else
+    pip install -q -r requirements.txt
+fi
 
 # load environment variables
 if [ -f .env ]; then
-    echo "📋 Loading environment from .env..."
+    echo "Loading environment from .env..."
     set -a
     source .env
     set +a
 else
-    echo " .env file not found in root directory"
+    echo ".env file not found in root directory"
     exit 1
 fi
 
 # Function to start backend
 start_backend() {
-    echo "🔧 Starting backend server on ${BACKEND_HOST}:${BACKEND_PORT}..."
+    echo "Starting backend server on ${BACKEND_HOST}:${BACKEND_PORT}..."
     cd backend
-    if command -v uv &> /dev/null; then
-        uv run python -m uvicorn server:app --reload --host $BACKEND_HOST --port $BACKEND_PORT &
-    else
-        python3 -m uvicorn server:app --reload --host $BACKEND_HOST --port $BACKEND_PORT &
-    fi
+    # Use python from activated virtual environment
+    python -m uvicorn server:app --reload --host $BACKEND_HOST --port $BACKEND_PORT &
     BACKEND_PID=$!
     cd ..
-    echo "backend started with PID: $BACKEND_PID"
+    echo "Backend started with PID: $BACKEND_PID"
 }
 
 # function to start frontend  
@@ -52,7 +68,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # check if ports are available
-echo "🔍 Checking port availability..."
+echo "Checking port availability..."
 if lsof -Pi :$BACKEND_PORT -sTCP:LISTEN -t >/dev/null ; then
     echo " Port $BACKEND_PORT is already in use. Please check running processes."
     echo "   Use: lsof -i :$BACKEND_PORT to see what's using it"

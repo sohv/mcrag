@@ -1,0 +1,42 @@
+# MCRAG - Multi Code Review and Generation
+# Python Dependencies (latest versions)
+
+# Web Framework & Server
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database & Caching
+redis[hiredis]
+
+# Environment & Configuration
+python-dotenv
+
+# Data Processing & Validation
+pydantic
+pandas
+numpy
+
+# HTTP Clients & Networking
+requests
+aiohttp
+
+# AI/ML APIs
+openai
+google-generativeai
+
+# Authentication & Security
+cryptography
+pyjwt
+passlib
+
+# Utilities
+boto3
+typer
+
+# Development & Testing
+pytest
+black
+isort
+flake8
+mypy
