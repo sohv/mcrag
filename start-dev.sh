@@ -1,0 +1,83 @@
+set -e  # Exit on any error
+
+
+# load environment variables
+if [ -f .env ]; then
+    echo "📋 Loading environment from .env..."
+    set -a
+    source .env
+    set +a
+else
+    echo " .env file not found in root directory"
+    exit 1
+fi
+
+# Function to start backend
+start_backend() {
+    echo "🔧 Starting backend server on ${BACKEND_HOST}:${BACKEND_PORT}..."
+    cd backend
+    if command -v uv &> /dev/null; then
+        uv run python -m uvicorn server:app --reload --host $BACKEND_HOST --port $BACKEND_PORT &
+    else
+        python3 -m uvicorn server:app --reload --host $BACKEND_HOST --port $BACKEND_PORT &
+    fi
+    BACKEND_PID=$!
+    cd ..
+    echo "backend started with PID: $BACKEND_PID"
+}
+
+# function to start frontend  
+start_frontend() {
+    echo " starting frontend server on port ${FRONTEND_PORT}..."
+    cd frontend
+    npm start &
+    FRONTEND_PID=$!
+    cd ..
+    echo " frontend started with PID: $FRONTEND_PID"
+}
+
+# function to cleanup processes on exit
+cleanup() {
+    echo " shutting down services..."
+    if [ ! -z "$BACKEND_PID" ]; then
+        kill $BACKEND_PID 2>/dev/null || true
+    fi
+    if [ ! -z "$FRONTEND_PID" ]; then
+        kill $FRONTEND_PID 2>/dev/null || true
+    fi
+    echo " goodbye!"
+}
+
+# trap signals to cleanup
+trap cleanup EXIT INT TERM
+
+# check if ports are available
+echo "🔍 Checking port availability..."
+if lsof -Pi :$BACKEND_PORT -sTCP:LISTEN -t >/dev/null ; then
+    echo " Port $BACKEND_PORT is already in use. Please check running processes."
+    echo "   Use: lsof -i :$BACKEND_PORT to see what's using it"
+    echo "   Use: kill <PID> to stop the conflicting process"
+    exit 1
+fi
+
+if lsof -Pi :$FRONTEND_PORT -sTCP:LISTEN -t >/dev/null ; then
+    echo " Port $FRONTEND_PORT is already in use. Please check running processes."
+    exit 1
+fi
+
+# start services
+start_backend
+sleep 2  # give backend time to start
+
+start_frontend
+sleep 2  # give frontend time to start
+
+echo ""
+echo " Backend:  http://${BACKEND_HOST}:${BACKEND_PORT}"
+echo " Frontend: http://localhost:${FRONTEND_PORT}"
+echo " API Docs: http://${BACKEND_HOST}:${BACKEND_PORT}/docs"
+echo ""
+echo "Press Ctrl+C to stop all services"
+
+# wait for user interrupt
+wait

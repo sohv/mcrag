@@ -23,3 +23,5 @@ numpy
 python-multipart
 jq
 typer
+openai
+google-generativeai

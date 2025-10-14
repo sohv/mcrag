@@ -15,6 +15,7 @@ node_modules/
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+build/
 
 # Testing
 /coverage

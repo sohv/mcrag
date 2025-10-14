@@ -27,32 +27,6 @@ The system consists of three main components:
 - **Intelligent Stopping**: Automatic termination based on feedback quality
 - **Error Recovery**: Comprehensive error handling and recovery mechanisms
 
-## Key Features
-
-### Code Generation
-- Supports multiple programming languages (Python, JavaScript, TypeScript, Java, C++, etc.)
-- Uses modern language features and best practices
-- Generates minimal, clean code with brief single-line comments
-- No verbose multi-line comments or documentation blocks
-
-### Multi-LLM Review System
-- **Generator (Gemini 2.5 Flash)**: Creates and refines code based on prompts
-- **Critic 1 (GPT-4o)**: Provides detailed code analysis and suggestions
-- **Critic 2 (DeepSeek R1)**: Offers alternative perspective and improvements
-- **Fallback Support**: Gemini fallback for DeepSeek R1 when unavailable
-
-### Intelligent Workflow
-- **Iterative Improvement**: Each iteration incorporates critic feedback
-- **Quality Assessment**: Critics rate code and provide scored feedback
-- **Smart Termination**: Stops when feedback quality is low or max iterations reached
-- **Consensus Building**: Generator ranks critic feedback and plans improvements
-
-### Real-time Processing
-- **Background Tasks**: Non-blocking code generation
-- **Status Tracking**: Live updates on generation progress
-- **Session Management**: Persistent sessions with unique identifiers
-- **Result Retrieval**: Complete generation history and final results
-
 ## Technology Stack
 
 ### Backend Technologies
@@ -79,50 +53,134 @@ The system consists of three main components:
 
 ```
 mcrag/
+├── .env                        
+├── .env.example               # Environment template
 ├── .gitignore
 ├── README.md
-├── SYSTEM_ARCHITECTURE.md
+├── start-dev.sh              # main development startup script
 ├── backend/
-│   ├── llm_services.py
-│   ├── models.py
-│   ├── requirements.txt
-│   ├── review_workflow.py
-│   └── server.py
+│   ├── llm_services.py       # LLM integration and services
+│   ├── models.py             # Pydantic data models
+│   ├── requirements.txt      # Python dependencies
+│   ├── review_workflow.py    # Code generation workflow engine
+│   ├── server.py            # FastAPI server and routes
+│   └── start-dev.sh         # Backend startup script
 ├── evaluation/
-│   ├── evaluate_mcrag.py
-│   ├── quality_evaluator.py
-│   ├── quick_eval.py
-│   ├── requirements.txt
-│   ├── test_cases.py
+│   ├── evaluate_mcrag.py     # Comprehensive evaluation framework
+│   ├── quality_evaluator.py  # Code quality assessment
+│   ├── quick_eval.py         # Quick single-case testing
+│   ├── requirements.txt      # Evaluation dependencies
+│   └── test_cases.py         # Test case definitions
 └── frontend/
-    ├── craco.config.js
-    ├── package-lock.json
-    ├── package.json
-    ├── postcss.config.js
-    ├── tailwind.config.js
-    ├── yarn.lock
+    ├── craco.config.js       # Create React App configuration
+    ├── package.json          # Node.js dependencies and scripts
+    ├── postcss.config.js     # PostCSS configuration
+    ├── tailwind.config.js    # Tailwind CSS configuration
+    ├── start-dev.sh          # Frontend startup script
     ├── public/
-    │   └── index.html
+    │   └── index.html        # HTML template
     └── src/
-        ├── App.css
-        ├── App.js
-        ├── index.css
-        ├── index.js
+        ├── App.css          # Application styles
+        ├── App.js           # Main React application
+        ├── index.css        # Global styles
+        ├── index.js         # React entry point
         └── components/
-            ├── CodeSubmission.js
-            ├── ReviewProgress.js
-            └── ReviewResult.js
+            ├── CodeSubmission.js  # Code generation form
+            ├── ReviewProgress.js  # Progress tracking component
+            └── ReviewResult.js    # Results display component
 ```
 
 ## Installation and Setup
 
 ### Prerequisites
-- Python 3.8+ with pip
+- Python 3.8+ with pip or uv
 - Node.js 16+ with npm
 - Redis server
 - API keys for OpenAI, Gemini AI, and DeepSeek
 
-### Backend Setup
+### Quick Start (Recommended)
+
+1. **Clone and navigate to the project:**
+```bash
+git clone <repository-url>
+cd mcrag
+```
+
+2. **Set up environment variables:**
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env with your API keys and configuration
+nano .env
+```
+
+3. **Start the development environment:**
+```bash
+# This starts both backend and frontend automatically
+./start-dev.sh
+```
+
+The application will be available at:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://127.0.0.1:8001
+- **API Documentation**: http://127.0.0.1:8001/docs
+
+### Environment Configuration
+
+This project uses a centralized `.env` file in the root directory. Both backend and frontend reference this shared configuration.
+
+#### Key Environment Variables
+
+**Server Configuration:**
+- `BACKEND_HOST=127.0.0.1` - Backend server host
+- `BACKEND_PORT=8001` - Backend server port  
+- `FRONTEND_PORT=3000` - Frontend development server port
+- `REACT_APP_BACKEND_URL=http://127.0.0.1:8001` - Frontend API endpoint
+
+**Database Configuration:**
+- `REDIS_URL=redis://localhost:6379` - Redis connection
+- `MONGO_URL=mongodb://localhost:27017` - MongoDB connection (if used)
+- `DB_NAME=test_database` - Database name
+
+**LLM API Keys:**
+- `OPENAI_API_KEY` - OpenAI API key for GPT-4o
+- `GEMINI_API_KEY` - Google Gemini API key for code generation
+- `DEEPSEEK_API_KEY` - DeepSeek API key for criticism
+- `OPENROUTER_API_KEY` - OpenRouter API key (optional, for multi-LLM support)
+
+**Model Configuration:**
+- `MODEL_GENERATOR=gemini-2.5-flash` - Default generator model
+- `MODEL_CRITIC1=gpt-4o` - First critic model
+- `MODEL_CRITIC2=deepseek-r1` - Second critic model
+
+#### Alternative Startup Methods
+
+**Start services individually:**
+```bash
+# Backend only
+cd backend && ./start-dev.sh
+
+# Frontend only (in another terminal)
+cd frontend && ./start-dev.sh
+```
+
+**Manual setup:**
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt  # or: uv pip install -r requirements.txt
+source ../.env
+uvicorn server:app --reload --host $BACKEND_HOST --port $BACKEND_PORT
+
+# Frontend (in another terminal)
+cd frontend
+npm install
+source ../.env
+npm start
+```
+
+### Manual Backend Setup
 
 1. Navigate to backend directory:
 ```bash
@@ -131,28 +189,29 @@ cd backend
 
 2. Install Python dependencies:
 ```bash
+# Using pip
 pip install -r requirements.txt
+
+# Or using uv (recommended)
+uv pip install -r requirements.txt
 ```
 
-3. Set up environment variables:
-```bash
-export OPENAI_API_KEY="your_openai_api_key"
-export GOOGLE_API_KEY="your_google_api_key"
-export DEEPSEEK_API_KEY="your_deepseek_api_key"
-export REDIS_URL="redis://localhost:6379"
-```
-
-4. Start Redis server:
+3. Start Redis server (if not running):
 ```bash
 redis-server
 ```
 
-5. Run the FastAPI server:
+4. Run the FastAPI server:
 ```bash
-uvicorn server:app --reload
+# Using environment from root .env
+source ../.env
+uvicorn server:app --reload --host $BACKEND_HOST --port $BACKEND_PORT
+
+# Or use the startup script
+./start-dev.sh
 ```
 
-### Frontend Setup
+### Manual Frontend Setup
 
 1. Navigate to frontend directory:
 ```bash
@@ -166,7 +225,12 @@ npm install
 
 3. Start the development server:
 ```bash
+# Using environment from root .env
+source ../.env
 npm start
+
+# Or use the startup script
+./start-dev.sh
 ```
 
 ## Workflow Process
@@ -297,21 +361,45 @@ Completeness    0.876 (±0.074)
 
 ### Environment Variables
 
+All configuration is managed through the centralized `.env` file in the project root. Copy `.env.example` to `.env` and configure the following:
+
 #### Required API Keys
 - `OPENAI_API_KEY`: OpenAI API access for GPT-4o
-- `GOOGLE_API_KEY`: Google AI API for Gemini models
+- `GEMINI_API_KEY`: Google AI API for Gemini models  
 - `DEEPSEEK_API_KEY`: DeepSeek API access
 
-#### Optional Configuration
+#### Server Configuration
+- `BACKEND_HOST`: Backend server host (default: 127.0.0.1)
+- `BACKEND_PORT`: Backend server port (default: 8001)
+- `FRONTEND_PORT`: Frontend development server port (default: 3000)
+- `REACT_APP_BACKEND_URL`: Frontend API endpoint (default: http://127.0.0.1:8001)
+
+#### Database Configuration
 - `REDIS_URL`: Redis connection string (default: redis://localhost:6379)
+- `MONGO_URL`: MongoDB connection string (optional)
+- `DB_NAME`: Database name (optional)
+
+#### Model Configuration
+- `MODEL_GENERATOR`: Generator model (default: gemini-2.5-flash)
+- `MODEL_CRITIC1`: First critic model (default: gpt-4o)
+- `MODEL_CRITIC2`: Second critic model (default: deepseek-r1)
+
+#### Optional Configuration
+- `OPENROUTER_API_KEY`: OpenRouter API for multi-LLM support
 - `MAX_ITERATIONS`: Maximum refinement cycles (default: 3)
-- `RATE_LIMIT_DELAY`: Gemini API rate limiting delay (default: 6 seconds)
+- `DEBUG`: Enable debug mode (default: true)
+- `LOG_LEVEL`: Logging level (default: INFO)
 
 ### Rate Limiting
 The system implements intelligent rate limiting for free tier APIs:
 - Gemini API: 6-second intervals (10 requests/minute limit)
 - Exponential backoff for rate limit errors
 - Automatic retry mechanisms with proper delays
+
+### Environment Variable Priority
+1. System environment variables
+2. Root `.env` file
+3. Default values in code
 
 ## Development Guidelines
 

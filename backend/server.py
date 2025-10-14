@@ -28,7 +28,7 @@ def to_json(data):
 def from_json(data):
     return json.loads(data)
 
-ROOT_DIR = Path(__file__).parent
+ROOT_DIR = Path(__file__).parent.parent  # Go up to project root
 load_dotenv(ROOT_DIR / '.env')
 
 # Redis connection
@@ -271,4 +271,6 @@ app.include_router(api_router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    host = os.environ.get('BACKEND_HOST', '127.0.0.1')
+    port = int(os.environ.get('BACKEND_PORT', 8001))
+    uvicorn.run(app, host=host, port=port)
