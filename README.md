@@ -102,7 +102,7 @@ mcrag/
 
 1. **Clone and navigate to the project:**
 ```bash
-git clone <repository-url>
+git clone https://www.github.com/sohv/mcrag.git  
 cd mcrag
 ```
 
