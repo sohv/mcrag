@@ -1,8 +1,8 @@
 set -e
 
-# Configuration
+# configuration
 DOCKER_IMAGE_NAME="mcrag-backend"
-DOCKER_HUB_USERNAME=""  # Set your Docker Hub username here
+DOCKER_HUB_USERNAME="sohanv" 
 
 # check if Docker is installed
 if ! command -v docker &> /dev/null; then
@@ -29,70 +29,66 @@ if [ -z "$OPENROUTER_API_KEY" ]; then
     fi
 fi
 
-# Function to build and start services
+# build and start services
 deploy() {
-    echo "📦 Building Docker images..."
+    echo " building Docker images..."
     docker-compose build --no-cache
     
-    echo "🚀 Starting services..."
+    echo " starting services..."
     docker-compose up -d
     
-    echo "⏳ Waiting for services to start..."
+    echo " waiting for services to start..."
     sleep 10
     
-    # Check service health
-    echo "🔍 Checking service health..."
+    echo " checking service health..."
     
-    # Check Redis
     if docker-compose exec redis redis-cli ping | grep -q PONG; then
-        echo "✅ Redis is healthy"
+        echo " Redis is healthy"
     else
-        echo "❌ Redis health check failed"
+        echo " Redis health check failed"
     fi
     
-    # Check Backend API
+    # check cackend API
     if curl -f http://localhost:8001/api/health &> /dev/null; then
-        echo "✅ Backend API is healthy"
+        echo " backend API is healthy"
     else
-        echo "❌ Backend API health check failed"
-        echo "📋 Checking logs..."
+        echo " backend API health check failed"
+        echo " checking logs..."
         docker-compose logs mcrag-backend
     fi
 }
 
-# Function to show status
+# show status
 status() {
-    echo "📊 Service Status:"
+    echo " service status:"
     docker-compose ps
     echo ""
-    echo "📋 Recent Logs:"
+    echo " recent logs:"
     docker-compose logs --tail=20
 }
 
-# Function to stop services
+# stop services
 stop() {
-    echo "🛑 Stopping services..."
+    echo " stopping services..."
     docker-compose down
 }
 
-# Function to clean up (remove containers and images)
+# clean up --- remove containers and images
 cleanup() {
-    echo "🧹 Cleaning up Docker resources..."
+    echo " cleaning up Docker resources..."
     docker-compose down -v --rmi all
     docker system prune -f
 }
 
-# Function to build and push to Docker Hub
+# build and push to Docker Hub
 push_to_dockerhub() {
     if [ -z "$DOCKER_HUB_USERNAME" ]; then
-        echo "❌ DOCKER_HUB_USERNAME not set in deploy.sh"
+        echo " DOCKER_HUB_USERNAME not set in deploy.sh"
         echo "   Please edit deploy.sh and set your Docker Hub username"
         exit 1
     fi
-    
-    echo "🐳 Building and pushing to Docker Hub..."
-    
-    # Get version tag (use git tag or default to 'latest')
+        
+    # use version tag (use git tag or default to 'latest')
     if git describe --tags --exact-match 2>/dev/null; then
         VERSION=$(git describe --tags --exact-match)
     else
@@ -102,31 +98,31 @@ push_to_dockerhub() {
     IMAGE_TAG="$DOCKER_HUB_USERNAME/$DOCKER_IMAGE_NAME:$VERSION"
     IMAGE_LATEST="$DOCKER_HUB_USERNAME/$DOCKER_IMAGE_NAME:latest"
     
-    echo "📦 Building image: $IMAGE_TAG"
+    echo " building image: $IMAGE_TAG"
     docker build -t $IMAGE_TAG .
     
-    # Also tag as latest
+    # tag as latest
     if [ "$VERSION" != "latest" ]; then
         docker tag $IMAGE_TAG $IMAGE_LATEST
     fi
     
-    # Check if logged into Docker Hub
+    # check if logged into Docker Hub
     if ! docker info | grep -q "Username:"; then
         echo "🔐 Please log in to Docker Hub:"
         docker login
     fi
     
-    echo "📤 Pushing $IMAGE_TAG to Docker Hub..."
+    echo " Pushing $IMAGE_TAG to Docker Hub..."
     docker push $IMAGE_TAG
     
     if [ "$VERSION" != "latest" ]; then
-        echo "📤 Pushing $IMAGE_LATEST to Docker Hub..."
+        echo " Pushing $IMAGE_LATEST to Docker Hub..."
         docker push $IMAGE_LATEST
     fi
     
-    echo "✅ Successfully pushed to Docker Hub!"
-    echo "📍 Image: https://hub.docker.com/r/$DOCKER_HUB_USERNAME/$DOCKER_IMAGE_NAME"
-    echo "🐳 Pull command: docker pull $IMAGE_TAG"
+    echo " Successfully pushed to Docker Hub!"
+    echo " Image: https://hub.docker.com/r/$DOCKER_HUB_USERNAME/$DOCKER_IMAGE_NAME"
+    echo "🐳Pull command: docker pull $IMAGE_TAG"
 }
 
 # Function to deploy from Docker Hub
