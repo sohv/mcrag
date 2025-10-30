@@ -125,19 +125,19 @@ push_to_dockerhub() {
     echo "🐳Pull command: docker pull $IMAGE_TAG"
 }
 
-# Function to deploy from Docker Hub
+# deploy from Docker Hub
 deploy_from_hub() {
     if [ -z "$DOCKER_HUB_USERNAME" ]; then
-        echo "❌ DOCKER_HUB_USERNAME not set in deploy.sh"
+        echo " DOCKER_HUB_USERNAME not set in deploy.sh"
         exit 1
     fi
     
     VERSION="${1:-latest}"
     IMAGE_TAG="$DOCKER_HUB_USERNAME/$DOCKER_IMAGE_NAME:$VERSION"
     
-    echo "🐳 Deploying from Docker Hub: $IMAGE_TAG"
+    echo " deploying from Docker Hub: $IMAGE_TAG"
     
-    # Create a temporary docker-compose file for Hub deployment
+    # create a temporary docker-compose file for Hub deployment
     cat > docker-compose.hub.yml << EOF
 version: '3.8'
 
@@ -194,35 +194,34 @@ networks:
     name: mcrag-network
 EOF
 
-    echo "🚀 Starting services from Docker Hub..."
+    echo " starting services from Docker hub..."
     docker-compose -f docker-compose.hub.yml up -d
     
-    echo "⏳ Waiting for services to start..."
+    echo " waiting for services to start..."
     sleep 10
     
-    # Check health using the same logic as deploy()
-    echo "🔍 Checking service health..."
+    # check health using the same logic as deploy()
+    echo " checking service health..."
     if docker-compose -f docker-compose.hub.yml exec redis redis-cli ping | grep -q PONG; then
-        echo "✅ Redis is healthy"
+        echo " Redis is healthy"
     else
-        echo "❌ Redis health check failed"
+        echo " Redis health check failed"
     fi
     
     if curl -f http://localhost:8001/api/health &> /dev/null; then
-        echo "✅ Backend API is healthy"
+        echo " backend API is healthy"
     else
-        echo "❌ Backend API health check failed"
+        echo " backend API health check failed"
     fi
     
-    echo "🎉 Deployment from Docker Hub complete!"
-    echo "📍 Backend API: http://localhost:8001"
+    echo " deployment from Docker hub complete!"
+    echo " backend API: http://localhost:8001"
 }
 
-# Function to clean up (remove containers and images)
+# clean up --- remove containers and images
 cleanup() {
-    echo "🧹 Cleaning up Docker resources..."
-    docker-compose down -v --rmi all
-    # Also clean up hub deployment if exists
+    echo " cleaning up Docker resources..."
+    docker-compose down -v --rmi all  # clean up hub deployment if exists
     if [ -f docker-compose.hub.yml ]; then
         docker-compose -f docker-compose.hub.yml down -v 2>/dev/null || true
         rm -f docker-compose.hub.yml
@@ -230,17 +229,16 @@ cleanup() {
     docker system prune -f
 }
 
-# Main menu
 case "${1:-deploy}" in
     "deploy")
         deploy
         echo ""
-        echo "🎉 Deployment complete!"
-        echo "📍 Backend API: http://localhost:8001"
-        echo "📍 API Docs: http://localhost:8001/docs"
-        echo "📍 Health Check: http://localhost:8001/api/health"
+        echo " deployment complete, yay!"
+        echo " backend API: http://localhost:8001"
+        echo " API Docs: http://localhost:8001/docs"
+        echo " health Check: http://localhost:8001/api/health"
         echo ""
-        echo "💡 Useful commands:"
+        echo " useful commands:"
         echo "   ./deploy.sh status  - Check service status"
         echo "   ./deploy.sh stop    - Stop services"
         echo "   ./deploy.sh logs    - View logs"
