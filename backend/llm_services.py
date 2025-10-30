@@ -3,8 +3,6 @@ import time
 import asyncio
 import aiohttp
 from typing import Dict, List, Optional, Tuple
-import openai
-import google.generativeai as genai
 from models import ProgrammingLanguage, FeedbackType
 import logging
 
@@ -12,15 +10,19 @@ logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self):
-        self.openai_key = os.environ.get('OPENAI_API_KEY')
-        self.gemini_key = os.environ.get('GEMINI_API_KEY')
-        self.deepseek_key = os.environ.get('DEEPSEEK_API_KEY')
-        # Rate limiting for Gemini (10 requests per minute on free tier)
-        self.gemini_last_request_time = 0
-        self.gemini_min_interval = 6  # 6 seconds between requests (10 per minute)
-        # Configure APIs
-        if self.gemini_key:
-            genai.configure(api_key=self.gemini_key)
+        self.openrouter_key = os.environ.get('OPENROUTER_API_KEY')
+        self.openrouter_url = os.environ.get('OPENROUTER_URL', 'https://openrouter.ai/api/v1')
+        
+        # Model mappings for OpenRouter
+        self.models = {
+            'generator': os.environ.get('MODEL_GENERATOR', 'google/gemini-2.0-flash'),
+            'critic1': os.environ.get('MODEL_CRITIC1', 'openai/gpt-4o'),
+            'critic2': os.environ.get('MODEL_CRITIC2', 'deepseek/deepseek-r1')
+        }
+        
+        # Rate limiting
+        self.last_request_time = 0
+        self.min_interval = 1.0  # 1 second between requests to be safe
 
     def _get_system_prompt(self, role: str, language: ProgrammingLanguage) -> str:
         base_context = f"You are an expert {language.value} developer working on a code generation and review system."
@@ -88,56 +90,70 @@ Response format:
 
         return ""
 
-    async def _wait_for_gemini_rate_limit(self):
+    async def _wait_for_rate_limit(self):
+        """Simple rate limiting to avoid overwhelming the API"""
         current_time = time.time()
-        time_since_last_request = current_time - self.gemini_last_request_time
+        time_since_last_request = current_time - self.last_request_time
         
-        if time_since_last_request < self.gemini_min_interval:
-            wait_time = self.gemini_min_interval - time_since_last_request
-            logger.info(f"Rate limiting: waiting {wait_time:.1f} seconds before Gemini request")
+        if time_since_last_request < self.min_interval:
+            wait_time = self.min_interval - time_since_last_request
+            logger.info(f"Rate limiting: waiting {wait_time:.1f} seconds before request")
             await asyncio.sleep(wait_time)
         
-        self.gemini_last_request_time = time.time()
+        self.last_request_time = time.time()
 
-    async def _handle_rate_limit_error(self, error_str: str) -> bool:
-        if "429" in error_str and "quota" in error_str.lower():
-            # Extract retry delay if provided
-            import re
-            retry_match = re.search(r'retry_delay\s*{\s*seconds:\s*(\d+)', error_str)
-            if retry_match:
-                retry_seconds = int(retry_match.group(1))
-                logger.info(f"Rate limit hit, waiting {retry_seconds} seconds as suggested by API")
-                await asyncio.sleep(retry_seconds)
-                return True
-            else:
-                # Default backoff
-                logger.info("Rate limit hit, waiting 60 seconds (default backoff)")
-                await asyncio.sleep(60)
-                return True
-        return False
+    async def _make_openrouter_request(self, messages: List[Dict], model: str, temperature: float = 0.3) -> str:
+        """Make a request to OpenRouter API"""
+        if not self.openrouter_key:
+            raise Exception("OpenRouter API key not configured")
+        
+        await self._wait_for_rate_limit()
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.openrouter_key}",
+            "HTTP-Referer": "https://mcrag.dev",  # Optional: for analytics
+            "X-Title": "MCRAG Code Review System"  # Optional: for analytics
+        }
+        
+        data = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"{self.openrouter_url}/chat/completions", 
+                                      headers=headers, json=data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        return result['choices'][0]['message']['content']
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"OpenRouter API request failed with status {response.status}: {error_text}")
+                        raise Exception(f"OpenRouter API error: {response.status} - {error_text}")
+        except Exception as e:
+            logger.error(f"Error making OpenRouter request: {str(e)}")
+            raise
 
     async def get_generator_response(self, prompt: str, language: str) -> Tuple[str, str, float]:
         start_time = time.time()
         
         try:
-            # Rate limiting for Gemini
-            await self._wait_for_gemini_rate_limit()
-            
-            model = genai.GenerativeModel('gemini-2.5-flash')
             system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
             
-            full_prompt = f"{system_prompt}\n\n{prompt}"
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
             
-            response = await asyncio.get_event_loop().run_in_executor(
-                None, model.generate_content, full_prompt
-            )
+            response_text = await self._make_openrouter_request(messages, self.models['generator'])
             
             processing_time = time.time() - start_time
             
             # Parse response to extract code and explanation
-            response_text = response.text
-            
-            # Try to extract code and explanation
             if "```" in response_text:
                 parts = response_text.split("```")
                 if len(parts) >= 3:
@@ -156,39 +172,7 @@ Response format:
             return code.strip(), explanation.strip(), processing_time
             
         except Exception as e:
-            error_str = str(e)
-            logger.error(f"Error getting generator response: {error_str}")
-            
-            # Try to handle rate limit with retry
-            if await self._handle_rate_limit_error(error_str):
-                try:
-                    # Retry once after waiting
-                    response = await asyncio.get_event_loop().run_in_executor(
-                        None, model.generate_content, full_prompt
-                    )
-                    
-                    processing_time = time.time() - start_time
-                    response_text = response.text
-                    
-                    # Parse response again
-                    if "```" in response_text:
-                        parts = response_text.split("```")
-                        if len(parts) >= 3:
-                            code = parts[1]
-                            if code.startswith(language):
-                                code = code[len(language):].strip()
-                            explanation = parts[0] + (parts[2] if len(parts) > 2 else "")
-                        else:
-                            code = response_text
-                            explanation = "Code generated"
-                    else:
-                        code = response_text
-                        explanation = "Code generated"
-                    
-                    return code.strip(), explanation.strip(), processing_time
-                except Exception as retry_e:
-                    logger.error(f"Retry also failed: {str(retry_e)}")
-            
+            logger.error(f"Error getting generator response: {str(e)}")
             processing_time = time.time() - start_time
             return f"# Error generating code: {str(e)}", "Generation failed", processing_time
 
@@ -196,12 +180,17 @@ Response format:
         start_time = time.time()
         
         try:
+            # Determine which model and role to use
             if model_name == "gpt-4o":
-                client = openai.AsyncOpenAI(api_key=self.openai_key)
                 role = "critic1"
-                
-                system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
-                
+                openrouter_model = self.models['critic1']
+            else:  # deepseek-r1 or other
+                role = "critic2"
+                openrouter_model = self.models['critic2']
+            
+            system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
+            
+            if role == "critic1":
                 review_prompt = f"""
 Review this {language} code that was generated for the following request:
 
@@ -219,23 +208,8 @@ Include:
 3. Suggestions for improvement
 4. Severity rating (1-5) for the most critical issue found
 """
-                
-                response = await client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": review_prompt}
-                    ],
-                    temperature=0.3
-                )
-                
-                review_text = response.choices[0].message.content
-                
-            else:  # DeepSeek R1 API call
-                if model_name == "deepseek-r1" and self.deepseek_key:
-                    role = "critic2"
-                    system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
-                    review_prompt = f"""
+            else:  # critic2
+                review_prompt = f"""
 Review this {language} code that was generated for the following request:
 
 Original Request: {original_prompt}
@@ -251,80 +225,13 @@ Focus on performance optimization and advanced techniques. Provide:
 3. Advanced improvement suggestions
 4. Severity rating (1-5) for the most critical issue
 """
-                    # Call DeepSeek R1 API
-                    api_url = "https://api.deepseek.com/chat/completions"
-                    headers = {
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.deepseek_key}",
-                    }
-                    data = {
-                        "model": "deepseek-reasoner",  # Use 'deepseek-reasoner' for R1 model
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": review_prompt}
-                        ],
-                        "stream": False
-                    }
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(api_url, headers=headers, json=data) as response:
-                            if response.status == 200:
-                                result = await response.json()
-                                review_text = result['choices'][0]['message']['content']
-                            else:
-                                logger.error(f"DeepSeek API request failed with status {response.status}")
-                                # Fallback to Gemini if DeepSeek fails
-                                await self._wait_for_gemini_rate_limit()
-                                model = genai.GenerativeModel('gemini-2.5-flash')
-                                fallback_prompt = f"""
-{system_prompt}
-
-Review this {language} code that was generated for the following request:
-
-Original Request: {original_prompt}
-
-Generated Code:
-```{language}
-{code}
-```
-
-Focus on performance optimization and advanced techniques. Provide:
-1. Performance assessment
-2. Optimization opportunities  
-3. Advanced improvement suggestions
-4. Severity rating (1-5) for the most critical issue
-"""
-                                response = await asyncio.get_event_loop().run_in_executor(
-                                    None, model.generate_content, fallback_prompt
-                                )
-                                review_text = response.text
-                else:
-                    # Fallback to Gemini if no DeepSeek key or different model
-                    role = "critic2"
-                    system_prompt = self._get_system_prompt(role, ProgrammingLanguage(language))
-                    await self._wait_for_gemini_rate_limit()
-                    model = genai.GenerativeModel('gemini-2.5-flash')
-                    review_prompt = f"""
-{system_prompt}
-
-Review this {language} code that was generated for the following request:
-
-Original Request: {original_prompt}
-
-Generated Code:
-```{language}
-{code}
-```
-
-Focus on performance optimization and advanced techniques. Provide:
-1. Performance assessment
-2. Optimization opportunities  
-3. Advanced improvement suggestions
-4. Severity rating (1-5) for the most critical issue
-"""
-                    response = await asyncio.get_event_loop().run_in_executor(
-                        None, model.generate_content, review_prompt
-                    )
-                    review_text = response.text
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": review_prompt}
+            ]
+            
+            review_text = await self._make_openrouter_request(messages, openrouter_model, temperature=0.3)
             
             processing_time = time.time() - start_time
             
@@ -364,8 +271,6 @@ Focus on performance optimization and advanced techniques. Provide:
         start_time = time.time()
         
         try:
-            await self._wait_for_gemini_rate_limit()
-            model = genai.GenerativeModel('gemini-2.5-flash')
             system_prompt = self._get_system_prompt("generator", ProgrammingLanguage(language))
             
             ranking_prompt = f"""
@@ -406,14 +311,14 @@ INCORPORATION PLAN:
 [Detailed plan for how to improve the code based on the most valuable feedback]
 """
             
-            response = await asyncio.get_event_loop().run_in_executor(
-                None, model.generate_content, ranking_prompt
-            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": ranking_prompt}
+            ]
+            
+            response_text = await self._make_openrouter_request(messages, self.models['generator'])
             
             # Parse response
-            response_text = response.text
-            
-            # Extract scores and plan
             import re
             
             critic1_score_match = re.search(r'CRITIC 1 SCORE:\s*([0-9.]+)', response_text)
@@ -439,64 +344,27 @@ INCORPORATION PLAN:
             return f"Error during ranking: {str(e)}", 0.1, 0.1, "Unable to create incorporation plan - stopping refinement"
 
     async def check_llm_availability(self) -> Dict[str, bool]:
+        """Check availability of models through OpenRouter"""
         results = {}
         
-        # Test Gemini (Generator)
-        try:
-            await self._wait_for_gemini_rate_limit()
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            await asyncio.get_event_loop().run_in_executor(
-                None, model.generate_content, "Hello"
-            )
-            results["gemini-2.5-flash"] = True
-        except Exception as e:
-            logger.error(f"Gemini availability check failed: {str(e)}")
-            results["gemini-2.5-flash"] = False
+        if not self.openrouter_key:
+            logger.warning("No OpenRouter API key provided")
+            return {
+                "generator": False,
+                "critic1": False,
+                "critic2": False
+            }
         
-        # Test OpenAI (Critic 1)
-        try:
-            client = openai.AsyncOpenAI(api_key=self.openai_key)
-            await client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=10
-            )
-            results["gpt-4o"] = True
-        except Exception as e:
-            logger.error(f"OpenAI availability check failed: {str(e)}")
-            results["gpt-4o"] = False
+        # Test each model through OpenRouter
+        test_message = [{"role": "user", "content": "Hello"}]
         
-        # Test DeepSeek R1 (Critic 2)
-        try:
-            if self.deepseek_key:
-                api_url = "https://api.deepseek.com/chat/completions"
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.deepseek_key}",
-                }
-                
-                data = {
-                    "model": "deepseek-reasoner",
-                    "messages": [
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": "Hello"}
-                    ],
-                    "stream": False
-                }
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(api_url, headers=headers, json=data) as response:
-                        if response.status == 200:
-                            results["deepseek-r1"] = True
-                        else:
-                            logger.error(f"DeepSeek API test failed with status {response.status}")
-                            results["deepseek-r1"] = False
-            else:
-                logger.warning("No DeepSeek API key provided")
-                results["deepseek-r1"] = False
-        except Exception as e:
-            logger.error(f"DeepSeek availability check failed: {str(e)}")
-            # Fallback to Gemini availability if DeepSeek fails
-            results["deepseek-r1"] = results["gemini-2.5-flash"]
+        for role, model in self.models.items():
+            try:
+                await self._make_openrouter_request(test_message, model)
+                results[role] = True
+                logger.info(f"Model {model} ({role}) is available through OpenRouter")
+            except Exception as e:
+                logger.error(f"Model {model} ({role}) availability check failed: {str(e)}")
+                results[role] = False
         
         return results

@@ -1,18 +1,18 @@
-set -e  # Exit on any error
+set -e  # exit on any error
 
 echo "Starting MCRAG Development Environment..."
 
-# Check if virtual environment exists
+# check for the virtual environment
 if [ ! -d "venv" ]; then
     echo "Virtual environment not found. Setting up..."
     ./setup-venv.sh
 fi
 
-# Activate virtual environment
+# activate virtual environment
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-# Ensure all dependencies are up to date using UV
+# ensure all dependencies are up to date
 echo "Updating dependencies from requirements.txt with UV..."
 if command -v uv &> /dev/null; then
     uv pip install -q -r requirements.txt
@@ -31,7 +31,19 @@ else
     exit 1
 fi
 
-# Function to start backend
+# check and install frontend dependencies
+echo "Checking frontend dependencies..."
+if [ ! -d "frontend/node_modules" ]; then
+    echo "Installing frontend dependencies..."
+    cd frontend
+    npm install
+    cd ..
+    echo "Frontend dependencies installed"
+else
+    echo "Frontend dependencies already installed"
+fi
+
+# start backend
 start_backend() {
     echo "Starting backend server on ${BACKEND_HOST}:${BACKEND_PORT}..."
     cd backend
@@ -42,7 +54,7 @@ start_backend() {
     echo "Backend started with PID: $BACKEND_PID"
 }
 
-# function to start frontend  
+# start frontend  
 start_frontend() {
     echo " starting frontend server on port ${FRONTEND_PORT}..."
     cd frontend
@@ -52,7 +64,7 @@ start_frontend() {
     echo " frontend started with PID: $FRONTEND_PID"
 }
 
-# function to cleanup processes on exit
+# cleanup processes on exit
 cleanup() {
     echo " shutting down services..."
     if [ ! -z "$BACKEND_PID" ]; then

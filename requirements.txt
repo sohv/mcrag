@@ -21,9 +21,7 @@ numpy
 requests
 aiohttp
 
-# AI/ML APIs
-openai
-google-generativeai
+# OpenRouter unified LLM access (no specific API clients needed)
 
 # Authentication & Security
 cryptography
