@@ -2,7 +2,7 @@ import os
 import time
 import asyncio
 import aiohttp
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from models import ProgrammingLanguage, FeedbackType
 import logging
 
@@ -342,6 +342,123 @@ INCORPORATION PLAN:
             logger.error(f"Error ranking reviews: {str(e)}")
             # If ranking fails, return low scores to stop refinement (can't incorporate feedback properly)
             return f"Error during ranking: {str(e)}", 0.1, 0.1, "Unable to create incorporation plan - stopping refinement"
+
+    async def verify_incorporation(self, original_code: str, refined_code: str, 
+                                   incorporation_plan: str, language: str) -> Tuple[str, float]:
+        """Independent verification that feedback was actually incorporated"""
+        try:
+            # Use a different model for independent verification
+            verifier_model = self.models['critic1']  # Use critic1 as independent verifier
+            
+            verification_prompt = f"""
+You are an independent code reviewer. Compare these two versions of {language} code to verify if the stated improvements were actually implemented.
+
+ORIGINAL CODE:
+```{language}
+{original_code}
+```
+
+REFINED CODE:
+```{language}
+{refined_code}
+```
+
+STATED INCORPORATION PLAN:
+{incorporation_plan}
+
+Tasks:
+1. Compare the two code versions objectively
+2. Check if each item in the incorporation plan was actually addressed
+3. Identify what actually changed
+4. Assign an incorporation score (0.0-1.0):
+   - 1.0 = All planned improvements fully implemented
+   - 0.7-0.9 = Most improvements implemented well
+   - 0.4-0.6 = Some improvements implemented
+   - 0.0-0.3 = Few/no real improvements made
+
+Respond in this format:
+VERIFICATION:
+[Your objective analysis of what actually changed]
+
+INCORPORATION SCORE: [0.0-1.0]
+
+ITEMS ADDRESSED:
+[List which plan items were actually implemented]
+
+ITEMS MISSING:
+[List which plan items were NOT implemented]
+"""
+            
+            messages = [
+                {"role": "system", "content": "You are an objective code reviewer focused on verifying actual changes."},
+                {"role": "user", "content": verification_prompt}
+            ]
+            
+            response_text = await self._make_openrouter_request(messages, verifier_model, temperature=0.2)
+            
+            # Parse incorporation score
+            import re
+            score_match = re.search(r'INCORPORATION SCORE:\s*([0-9.]+)', response_text)
+            incorporation_score = float(score_match.group(1)) if score_match else 0.5
+            incorporation_score = max(0.0, min(1.0, incorporation_score))
+            
+            return response_text, incorporation_score
+            
+        except Exception as e:
+            logger.error(f"Error during verification: {str(e)}")
+            return f"Verification error: {str(e)}", 0.5
+
+    def calculate_objective_metrics(self, original_code: str, refined_code: str, language: str) -> Dict[str, Any]:
+        """Calculate objective improvements between code versions"""
+        metrics = {}
+        
+        try:
+            # Line count changes
+            orig_lines = [l for l in original_code.split('\n') if l.strip() and not l.strip().startswith('#')]
+            refined_lines = [l for l in refined_code.split('\n') if l.strip() and not l.strip().startswith('#')]
+            metrics['lines_changed'] = len(refined_lines) - len(orig_lines)
+            
+            # Error handling added
+            orig_try = original_code.count('try:') + original_code.count('try {') + original_code.count('try(')
+            refined_try = refined_code.count('try:') + refined_code.count('try {') + refined_code.count('try(')
+            metrics['error_handlers_added'] = refined_try - orig_try
+            
+            # Comments/documentation
+            orig_comments = original_code.count('#') + original_code.count('//') + original_code.count('"""')
+            refined_comments = refined_code.count('#') + refined_code.count('//') + refined_code.count('"""')
+            metrics['documentation_added'] = refined_comments - orig_comments
+            
+            # Type hints (Python)
+            if language == 'python':
+                orig_types = original_code.count(' -> ') + original_code.count(': ')
+                refined_types = refined_code.count(' -> ') + refined_code.count(': ')
+                metrics['type_hints_added'] = refined_types - orig_types
+            
+            # Function definitions
+            orig_funcs = original_code.count('def ') + original_code.count('function ') + original_code.count('func ')
+            refined_funcs = refined_code.count('def ') + refined_code.count('function ') + refined_code.count('func ')
+            metrics['functions_added'] = refined_funcs - orig_funcs
+            
+            # Calculate improvement score (0-1)
+            positive_changes = sum(1 for v in metrics.values() if isinstance(v, (int, float)) and v > 0)
+            total_metrics = len([v for v in metrics.values() if isinstance(v, (int, float))])
+            metrics['improvement_ratio'] = positive_changes / total_metrics if total_metrics > 0 else 0.0
+            
+            # Overall assessment
+            if metrics['improvement_ratio'] > 0.6:
+                metrics['assessment'] = 'significant_improvement'
+            elif metrics['improvement_ratio'] > 0.3:
+                metrics['assessment'] = 'moderate_improvement'
+            elif metrics['improvement_ratio'] > 0:
+                metrics['assessment'] = 'minor_improvement'
+            else:
+                metrics['assessment'] = 'no_improvement'
+                
+        except Exception as e:
+            logger.error(f"Error calculating metrics: {str(e)}")
+            metrics['error'] = str(e)
+        
+        return metrics
 
     async def check_llm_availability(self) -> Dict[str, bool]:
         """Check availability of models through OpenRouter"""

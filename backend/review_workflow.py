@@ -63,6 +63,8 @@ class CodeGenerationWorkflow:
     async def _run_generation_cycle(self, session: CodeGenerationSession, request: CodeGenerationRequest):
         # Function documentation.
         
+        previous_code = None  # Track previous code for verification
+        
         while session.refinement_iterations < session.max_iterations:
             logger.info(f"Starting iteration {session.refinement_iterations + 1}")
             
@@ -76,23 +78,55 @@ class CodeGenerationWorkflow:
             
             session.current_code_id = generated_code.id
             
-            # Step 2: Get critic reviews in parallel
-            # Batch write after both reviews
+            # Step 2: PARALLEL EXECUTION - Get critic reviews AND verify previous iteration
+            # This is where we save time by overlapping verification with critics
             session.status = GenerationStatus.REVIEWING
             request.status = GenerationStatus.REVIEWING 
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
             await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
-            critic1_review, critic2_review = await asyncio.gather(
+            
+            # Build parallel tasks
+            tasks = [
                 self._get_critic_review(generated_code, FeedbackType.CRITIC1),
                 self._get_critic_review(generated_code, FeedbackType.CRITIC2)
-            )
+            ]
+            
+            # Add verification task if we have previous code to verify
+            verification_task = None
+            if previous_code is not None and session.ranking_id is not None:
+                # Get ranking to verify
+                ranking_data = await self.redis.get(f"ranking:{session.ranking_id}")
+                ranking = ReviewRanking(**from_json(ranking_data))
+                
+                # Check if we should verify with LLM (hybrid logic)
+                if await self._should_verify_with_llm(previous_code, generated_code, ranking, session, request):
+                    logger.info("Running LLM verification in parallel with critics...")
+                    verification_task = self._verify_incorporation(
+                        previous_code, generated_code, ranking, session, request
+                    )
+                    tasks.append(verification_task)
+                else:
+                    logger.info("Skipping LLM verification (metrics only)")
+            
+            # Execute all tasks in parallel
+            results = await asyncio.gather(*tasks)
+            critic1_review = results[0]
+            critic2_review = results[1]
+            verification_result = results[2] if len(results) > 2 else None
+            
+            # Link verification to previous ranking if it was done
+            if verification_result and session.ranking_id:
+                ranking_data = await self.redis.get(f"ranking:{session.ranking_id}")
+                ranking = ReviewRanking(**from_json(ranking_data))
+                ranking.verification_id = verification_result.id
+                await self.redis.setex(f"ranking:{ranking.id}", 86400, to_json(ranking.dict()))
             
             session.critic1_review_id = critic1_review.id
             session.critic2_review_id = critic2_review.id
             
             # Step 3: Generator ranks the reviews and decides on refinements
             session.status = GenerationStatus.REFINING
-            request.status = GenerationStatus.REFINING  # Update request status too
+            request.status = GenerationStatus.REFINING
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
             await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
             
@@ -100,22 +134,28 @@ class CodeGenerationWorkflow:
             session.ranking_id = ranking.id
             
             # Check if refinement is needed
-            if self._should_stop_refinement(ranking, session):
-                # Generation is complete
+            if await self._should_stop_refinement(ranking, session):
+                # Before stopping, verify the final iteration if needed
+                if previous_code is not None and not verification_result:
+                    await self._verify_final_iteration(previous_code, generated_code, ranking, session, request)
+                
                 session.status = GenerationStatus.COMPLETED
-                request.status = GenerationStatus.COMPLETED  # Update request status too
+                request.status = GenerationStatus.COMPLETED
                 await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
                 await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
                 break
             
-            # Continue to next iteration (go back to GENERATING for next iteration)
+            # Store current code as previous for next iteration's verification
+            previous_code = generated_code
+            
+            # Continue to next iteration
             session.refinement_iterations += 1
-            session.status = GenerationStatus.GENERATING  # Next iteration starts with generation
+            session.status = GenerationStatus.GENERATING
             request.status = GenerationStatus.GENERATING
             await self.redis.setex(f"session:{session.id}", 86400, to_json(session.dict()))
             await self.redis.setex(f"request:{request.id}", 86400, to_json(request.dict()))
         
-        # If we've reached max iterations, mark as completed anyway
+        # If we've reached max iterations, mark as completed
         if session.status != GenerationStatus.COMPLETED:
             session.status = GenerationStatus.COMPLETED
             request.status = GenerationStatus.COMPLETED
@@ -233,6 +273,9 @@ class CodeGenerationWorkflow:
         # Save refined code
         await self.redis.setex(f"code:{refined_code.id}", 86400, to_json(refined_code.dict()))
         
+        # Note: Verification now happens in parallel with next iteration's critics
+        # See _run_generation_cycle for the parallel execution logic
+        
         return refined_code
 
     async def _get_critic_review(self, generated_code: GeneratedCode, critic_type: FeedbackType) -> CriticReview:
@@ -309,7 +352,122 @@ class CodeGenerationWorkflow:
         
         return ranking
 
-    def _should_stop_refinement(self, ranking: ReviewRanking, session: CodeGenerationSession) -> bool:
+    async def _should_verify_with_llm(self, original_code: GeneratedCode, refined_code: GeneratedCode,
+                                      ranking: ReviewRanking, session: CodeGenerationSession,
+                                      request: CodeGenerationRequest) -> bool:
+        """Hybrid logic: Decide if LLM verification is needed or if metrics are enough"""
+        from models import VerificationMode
+        
+        mode = session.verification_mode
+        
+        # Check verification mode
+        if mode == VerificationMode.DISABLED:
+            return False
+        
+        if mode == VerificationMode.METRICS_ONLY:
+            return False
+        
+        if mode == VerificationMode.ALWAYS:
+            return True
+        
+        # Calculate quick objective metrics (instant, no LLM)
+        metrics = self.llm_service.calculate_objective_metrics(
+            original_code.generated_code,
+            refined_code.generated_code,
+            request.language.value
+        )
+        
+        if mode == VerificationMode.FINAL_ONLY:
+            # Only verify last iteration
+            return session.refinement_iterations >= session.max_iterations - 1
+        
+        if mode == VerificationMode.SMART:
+            # Hybrid: Verify with LLM only when needed
+            
+            # Red flag: No improvements detected by metrics
+            if metrics.get('assessment') == 'no_improvement':
+                logger.info("LLM verification triggered: No objective improvements detected")
+                return True
+            
+            # Red flag: Critics strongly disagree (>0.4 difference)
+            score_diff = abs(ranking.critic1_score - ranking.critic2_score)
+            if score_diff > 0.4:
+                logger.info(f"LLM verification triggered: Critics disagree (diff={score_diff:.2f})")
+                return True
+            
+            # Always verify final iteration
+            if session.refinement_iterations >= session.max_iterations - 1:
+                logger.info("LLM verification triggered: Final iteration")
+                return True
+            
+            # Skip LLM verification - metrics are enough
+            logger.info(f"Metrics assessment: {metrics.get('assessment')} - Skipping LLM verification")
+            return False
+        
+        # Default: don't verify
+        return False
+    
+    async def _verify_incorporation(self, original_code: GeneratedCode, refined_code: GeneratedCode,
+                                   ranking: ReviewRanking, session: CodeGenerationSession,
+                                   request: CodeGenerationRequest):
+        """Run verification (LLM + metrics) and save results"""
+        from models import VerificationResult
+        
+        logger.info("Running verification...")
+        
+        # LLM verification
+        verification_text, incorporation_score = await self.llm_service.verify_incorporation(
+            original_code.generated_code,
+            refined_code.generated_code,
+            ranking.incorporation_plan,
+            request.language.value
+        )
+        
+        # Objective metrics
+        objective_metrics = self.llm_service.calculate_objective_metrics(
+            original_code.generated_code,
+            refined_code.generated_code,
+            request.language.value
+        )
+        
+        # Create verification result
+        verification = VerificationResult(
+            session_id=session.id,
+            original_code_id=original_code.id,
+            refined_code_id=refined_code.id,
+            incorporation_plan=ranking.incorporation_plan,
+            verification_text=verification_text,
+            incorporation_score=incorporation_score,
+            objective_improvements=objective_metrics
+        )
+        
+        # Save verification
+        await self.redis.setex(f"verification:{verification.id}", 86400, to_json(verification.dict()))
+        
+        logger.info(f"Verification complete - Score: {incorporation_score:.2f}, "
+                   f"Assessment: {objective_metrics.get('assessment', 'unknown')}")
+        
+        return verification
+    
+    async def _verify_final_iteration(self, original_code: GeneratedCode, refined_code: GeneratedCode,
+                                      ranking: ReviewRanking, session: CodeGenerationSession,
+                                      request: CodeGenerationRequest):
+        """Verify final iteration if it wasn't verified during parallel execution"""
+        from models import VerificationMode
+        
+        if session.verification_mode in [VerificationMode.DISABLED, VerificationMode.METRICS_ONLY]:
+            return
+        
+        logger.info("Running final verification before completion...")
+        verification = await self._verify_incorporation(
+            original_code, refined_code, ranking, session, request
+        )
+        
+        # Link to ranking
+        ranking.verification_id = verification.id
+        await self.redis.setex(f"ranking:{ranking.id}", 86400, to_json(ranking.dict()))
+
+    async def _should_stop_refinement(self, ranking: ReviewRanking, session: CodeGenerationSession) -> bool:
         # Function documentation.
         
         logger.info(f"Refinement decision - Iteration: {session.refinement_iterations + 1}/{session.max_iterations}, "
@@ -324,6 +482,34 @@ class CodeGenerationWorkflow:
         if "Error during ranking" in ranking.ranking_explanation:
             logger.info(f"STOP: Ranking failed - {ranking.ranking_explanation}")
             return True
+        
+        # NEW: Check verification results if available
+        if ranking.verification_id:
+            try:
+                verification_data = await self.redis.get(f"verification:{ranking.verification_id}")
+                if verification_data:
+                    from models import VerificationResult
+                    verification = VerificationResult(**from_json(verification_data))
+                    
+                    # Stop if incorporation score is low (feedback wasn't actually addressed)
+                    if verification.incorporation_score < 0.4:
+                        logger.info(f"STOP: Low incorporation score ({verification.incorporation_score:.2f}) - "
+                                   f"feedback not being properly addressed")
+                        return True
+                    
+                    # Stop if no objective improvements
+                    if verification.objective_improvements.get('assessment') == 'no_improvement':
+                        logger.info(f"STOP: No objective improvements detected")
+                        return True
+                    
+                    # Stop if high incorporation (>0.8) but low critic scores (<0.4)
+                    # This means we're incorporating everything but critics still finding issues = diminishing returns
+                    if verification.incorporation_score > 0.8 and ranking.critic1_score < 0.4 and ranking.critic2_score < 0.4:
+                        logger.info(f"STOP: High incorporation but low critic scores - diminishing returns")
+                        return True
+                        
+            except Exception as e:
+                logger.warning(f"Could not check verification: {e}")
         
         # Stop if both critics gave low scores (poor feedback quality - nothing useful to incorporate)
         if ranking.critic1_score < 0.3 and ranking.critic2_score < 0.3:
@@ -389,6 +575,21 @@ class CodeGenerationWorkflow:
                 if ranking_data:
                     rankings.append(ReviewRanking(**from_json(ranking_data)))
             
+            # Get verifications
+            from models import VerificationResult
+            verifications = []
+            cursor = 0
+            while True:
+                cursor, keys = await self.redis.scan(cursor, match="verification:*", count=100)
+                for key in keys:
+                    verification_data = await self.redis.get(key)
+                    if verification_data:
+                        verification = VerificationResult(**from_json(verification_data))
+                        if verification.session_id == session_id:
+                            verifications.append(verification)
+                if cursor == 0:
+                    break
+            
             # Get final code
             final_code = None
             if generated_codes:
@@ -400,8 +601,9 @@ class CodeGenerationWorkflow:
                 generated_codes=generated_codes,
                 critic_reviews=critic_reviews,
                 rankings=rankings,
+                verifications=verifications,
                 final_code=final_code,
-                generation_summary=self._create_summary(session, generated_codes, critic_reviews)
+                generation_summary=self._create_summary(session, generated_codes, critic_reviews, verifications)
             )
             
         except Exception as e:
@@ -409,7 +611,7 @@ class CodeGenerationWorkflow:
             return None
 
     def _create_summary(self, session: CodeGenerationSession, 
-                       generated_codes: list, critic_reviews: list) -> str:
+                       generated_codes: list, critic_reviews: list, verifications: list = None) -> str:
         # Function documentation.
         summary = f"Generation completed in {session.refinement_iterations + 1} iterations.\n"
         
@@ -418,6 +620,15 @@ class CodeGenerationWorkflow:
         
         if critic_reviews:
             summary += f"Total critic reviews: {len(critic_reviews)}\n"
+        
+        if verifications:
+            avg_incorporation = sum(v.incorporation_score for v in verifications) / len(verifications)
+            summary += f"Average incorporation score: {avg_incorporation:.2f}\n"
+            
+            improvements = [v.objective_improvements.get('assessment', 'unknown') for v in verifications]
+            significant_count = improvements.count('significant_improvement')
+            moderate_count = improvements.count('moderate_improvement')
+            summary += f"Improvements: {significant_count} significant, {moderate_count} moderate\n"
         
         summary += f"Status: {session.status.value}"
         

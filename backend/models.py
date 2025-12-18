@@ -12,6 +12,13 @@ class GenerationStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+class VerificationMode(str, Enum):
+    ALWAYS = "always"          # Verify every iteration with LLM
+    SMART = "smart"            # Verify with LLM only when needed (hybrid)
+    FINAL_ONLY = "final_only"  # Only verify final iteration
+    METRICS_ONLY = "metrics_only"  # Only objective metrics, no LLM
+    DISABLED = "disabled"      # No verification at all
+
 class FeedbackType(str, Enum):
     GENERATOR = "generator"
     CRITIC1 = "critic1"
@@ -61,6 +68,17 @@ class CriticReview(BaseModel):
     processing_time: Optional[float] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+class VerificationResult(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str
+    original_code_id: str
+    refined_code_id: str
+    incorporation_plan: str
+    verification_text: str  # Independent evaluator's assessment
+    incorporation_score: float = Field(ge=0, le=1)  # How well feedback was incorporated
+    objective_improvements: Dict[str, Any] = Field(default_factory=dict)  # Measurable improvements
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class ReviewRanking(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str
@@ -71,6 +89,7 @@ class ReviewRanking(BaseModel):
     critic1_score: float = Field(ge=0, le=1)  # How valuable critic1's feedback is
     critic2_score: float = Field(ge=0, le=1)  # How valuable critic2's feedback is
     incorporation_plan: str
+    verification_id: Optional[str] = None  # Link to verification result
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class CodeGenerationSession(BaseModel):
@@ -82,6 +101,7 @@ class CodeGenerationSession(BaseModel):
     ranking_id: Optional[str] = None
     refinement_iterations: int = 0
     max_iterations: int = 3
+    verification_mode: VerificationMode = VerificationMode.SMART  # Default to hybrid
     status: GenerationStatus = GenerationStatus.PENDING
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -92,6 +112,7 @@ class GenerationResult(BaseModel):
     generated_codes: List[GeneratedCode] = Field(default_factory=list)
     critic_reviews: List[CriticReview] = Field(default_factory=list)
     rankings: List[ReviewRanking] = Field(default_factory=list)
+    verifications: List[VerificationResult] = Field(default_factory=list)
     final_code: Optional[str] = None
     generation_summary: Optional[str] = None
 
